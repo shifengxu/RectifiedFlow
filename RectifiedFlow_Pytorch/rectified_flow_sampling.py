@@ -6,6 +6,7 @@ import time
 import torch
 import torchvision.utils as tvu
 from RectifiedFlow_Pytorch import utils
+from RectifiedFlow_Pytorch.models.ema import ExponentialMovingAverage
 from RectifiedFlow_Pytorch.models.ncsnpp import NCSNpp
 from utils import log_info as log_info
 
@@ -44,6 +45,13 @@ class RectifiedFlowSampling:
         log_info(f"  states['step']: {states['step']}")
         model.load_state_dict(states['model'], strict=True)
         model.eval()
+        log_info(f"  model.load_state_dict(states['model'], strict=False)")
+        log_info(f"  model.eval()")
+        ema = ExponentialMovingAverage(model.parameters(), decay=config.model.ema_rate)
+        ema.load_state_dict(states['ema'])
+        ema.copy_to(model.parameters())
+        log_info(f"  ema.load_state_dict(states['ema'])")
+        log_info(f"  ema.copy_to(model.parameters())")
         log_info(f"  load ckpt: {ckpt_path} . . . Done")
         return model
 
