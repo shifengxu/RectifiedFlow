@@ -16,58 +16,71 @@ if prt_dir not in sys.path:
     sys.path.append(prt_dir)
     print(f"sys.path.append({prt_dir})")
 
-import RectifiedFlow_Pytorch.configs.rectified_flow.bedroom_rf_gaussian as bedroom_rf_gaussian
+# This is for "ninja", which is necessary in model construction.
+# "ninja" is an exe file, locates in the same folder as "python".
+# Sample location: ~/anaconda3/envs/restflow/bin/
+exe_dir = os.path.dirname(sys.executable)
+env_path = os.environ['PATH']
+if exe_dir not in env_path:
+    os.environ['PATH'] = f"{exe_dir}:{env_path}"
+    print(f"Environment variable PATH has inserted new dir: {exe_dir}")
+
+from RectifiedFlow_Pytorch.configs.rectified_flow import bedroom_rf_gaussian
+from RectifiedFlow_Pytorch.configs.rectified_flow import church_rf_gaussian
 from RectifiedFlow_Pytorch.rectified_flow_sampling import RectifiedFlowSampling
+from RectifiedFlow_Pytorch.rectified_flow_training import RectifiedFlowTraining
+from RectifiedFlow_Pytorch.rectified_flow_misc import RectifiedFlowMiscellaneous
 from utils import str2bool, calc_fid
 from utils import log_info as log_info
 
 torch.set_printoptions(sci_mode=False)
 
-
 def parse_args_and_config():
     parser = argparse.ArgumentParser(description=globals()["__doc__"])
-    # parser.add_argument("--config", type=str, default='configs/rectified_flow/cifar10_rf_gaussian_ddpmpp.py')
-    parser.add_argument("--todo", type=str, default='sample_all', help="train|sample|sample_all")
+    parser.add_argument("--config", type=str, default='bedroom2')
+    parser.add_argument("--todo", type=str, default='train', help="train|sample|sample_all")
     parser.add_argument('--gpu_ids', nargs='+', type=int, default=[7, 6])
-    parser.add_argument("--n_epochs", type=int, default=1000, help="0 mean epoch number from config file")
-    parser.add_argument('--lr', type=float, default=0.0002, help="learning rate")
     parser.add_argument("--seed", type=int, default=1234, help="Random seed. 0 means ignore")
-    parser.add_argument("--log_interval", type=int, default=10)
-    parser.add_argument("--test_interval", type=int, default=10, help='calc loss on test dataset. 0 means no calc.')
+    parser.add_argument("--log_interval", type=int, default=5)
 
     # data
-    parser.add_argument("--data_dir", type=str, default="./exp")
-    parser.add_argument("--batch_size", type=int, default=200, help="0 mean to use size from config file")
-    parser.add_argument("--train_ds_limit", type=int, default=0, help="training dataset limit")
+    parser.add_argument("--data_dir", type=str, default="../ddim/exp/datasets")
+    parser.add_argument("--batch_size", type=int, default=8, help="0 mean to use size from config file")
+    parser.add_argument("--train_ds_limit", type=int, default=100, help="training dataset limit")
     parser.add_argument("--test_ds_limit", type=int, default=0, help="testing dataset limit")
 
-    # model
-    parser.add_argument("--beta_schedule", type=str, default="linear")
-    parser.add_argument("--save_ckpt_interval", type=int, default=50)
-    parser.add_argument("--save_ckpt_dir", type=str, default='./output0_tmp')
+    # training
+    parser.add_argument('--lr', type=float, default=0.0002, help="learning rate")
+    parser.add_argument("--n_epochs", type=int, default=1, help="0 mean epoch number from config file")
+    parser.add_argument("--test_interval", type=int, default=10, help='calc loss on test dataset. 0 means no calc.')
+    parser.add_argument('--ema_rate', type=float, default=0.999, help='mu in EMA. 0 means using value from config')
+    parser.add_argument("--resume_ckpt_path", type=str, default='./checkpoint/ckpt_gnobitab_RF_LSUN_Bedroom.pth')
+    parser.add_argument("--save_ckpt_path", type=str, default='./checkpoint_refined/ckpt.pth')
+    parser.add_argument("--save_ckpt_interval", type=int, default=50, help="count by epoch")
+    parser.add_argument("--loss_dual", type=str2bool, default=True, help="use dual loss")
+    parser.add_argument("--loss_lambda", type=float, default=0.1, help="lambda when dual loss")
 
     # sampling
     parser.add_argument("--sample_count", type=int, default='50000', help="sample image count")
-    parser.add_argument("--sample_batch_size", type=int, default=50, help="0 mean from config file")
+    parser.add_argument("--sample_batch_size", type=int, default=5, help="0 mean from config file")
     parser.add_argument("--sample_ckpt_path", type=str, default='./checkpoint/ckpt_gnobitab_RF_LSUN_Bedroom.pth')
-    parser.add_argument("--sample_output_dir", type=str, default="./output7_bedroom/generated")
+    parser.add_argument("--sample_output_dir", type=str, default="./output5/generated")
     parser.add_argument("--sample_order_arr", nargs='*', type=int, default=[], help="1|2|3")
-    parser.add_argument("--sample_steps_arr", nargs='*', type=int, default=[20])
+    parser.add_argument("--sample_steps_arr", nargs='*', type=int, default=[10])
     parser.add_argument("--sample_geometric_arr", nargs='*', type=float, default=[0.9])
     parser.add_argument("--sample_init_ts_arr", nargs='*', type=int, default=[940])
     parser.add_argument("--fid_input1", type=str, default="../ddim/exp/datasets/lsun/bedroom_train")
 
-    # training
-    parser.add_argument('--ema_flag', type=str2bool, default=True, help='EMA flag')
-    parser.add_argument('--ema_rate', type=float, default=0.999, help='mu in EMA. 0 means using value from config')
-    parser.add_argument('--ema_start_epoch', type=int, default=0, help='EMA start epoch')
-    parser.add_argument("--resume_training", type=str2bool, default=False)
-    parser.add_argument("--resume_ckpt", type=str, default="./exp/logs/doc/ckpt.pth")
-    parser.add_argument("--loss_dual", type=str2bool, default=False, help="use dual loss")
-    parser.add_argument("--loss_lambda", type=float, default=0.1, help="lambda when dual loss")
-
     args = parser.parse_args()
-    config = bedroom_rf_gaussian.get_config()
+    if args.config == 'bedroom':
+        config = bedroom_rf_gaussian.get_config()
+    elif args.config == 'bedroom2':
+        config = bedroom_rf_gaussian.get_config()
+        config.data.dataset = 'LSUN2'
+    elif args.config in ['church', 'church_outdoor']:
+        config = church_rf_gaussian.get_config()
+    else:
+        raise ValueError(f"Invalid args.config: {args.config}")
 
     # add device
     gpu_ids = args.gpu_ids
@@ -128,7 +141,13 @@ def main():
     log_info(f"main_pytorch -> {args.todo} ===================================")
     if args.todo == 'sample':
         runner = RectifiedFlowSampling(args, config, device=args.device)
-        runner.sample(sample_steps=args.sample_steps[0])
+        runner.sample(sample_steps=args.sample_steps_arr[0])
+    elif args.todo == 'train':
+        runner = RectifiedFlowTraining(args, config, device=args.device)
+        runner.train()
+    elif args.todo == 'run_delta':
+        runner = RectifiedFlowMiscellaneous(args, config, device=args.device)
+        runner.run_delta_between_prediction_and_ground_truth()
     elif args.todo == 'sample_all':
         sample_all(args, config)
     else:

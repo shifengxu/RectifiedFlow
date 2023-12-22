@@ -28,10 +28,6 @@ class RectifiedFlowSampling:
             raise ValueError(f"Unknown model name: {model_name}")
         log_info(f"  model = model.to({self.device})")
         model = model.to(self.device)
-        # The checkpoint has key like "module.sigma",
-        # so here model needs to be DataParallel.
-        log_info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
-        model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
         ckpt_path = args.sample_ckpt_path
         log_info(f"  load ckpt: {ckpt_path} . . .")
         states = torch.load(ckpt_path, map_location=self.device)
@@ -41,11 +37,24 @@ class RectifiedFlowSampling:
         # 'model'    : states['model'].state_dict(),
         # 'ema'      : states['ema'].state_dict(),
         # 'step'     : states['step']
-
-        log_info(f"  states['step']: {states['step']}")
-        model.load_state_dict(states['model'], strict=True)
+        log_info(f"  states['step']       : {states['step']}")
+        log_info(f"  states['step_new']   : {states.get('step_new')}")
+        log_info(f"  states['loss_dual']  : {states.get('loss_dual')}")
+        log_info(f"  states['loss_lambda']: {states.get('loss_lambda')}")
+        log_info(f"  states['pure_flag']  : {states.get('pure_flag')}")
+        if states.get('pure_flag'):
+            log_info(f"  model.load_state_dict(states['model'], strict=True)")
+            model.load_state_dict(states['model'], strict=True)
+            log_info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
+            model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
+        else:
+            # The checkpoint has key like "module.sigma",
+            # so here model needs to be DataParallel.
+            log_info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
+            model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
+            log_info(f"  model.load_state_dict(states['model'], strict=True)")
+            model.load_state_dict(states['model'], strict=True)
         model.eval()
-        log_info(f"  model.load_state_dict(states['model'], strict=False)")
         log_info(f"  model.eval()")
         ema = ExponentialMovingAverage(model.parameters(), decay=config.model.ema_rate)
         ema.load_state_dict(states['ema'])
@@ -95,13 +104,14 @@ class RectifiedFlowSampling:
             model_fn = mutils.get_model_fn(model, train=train)
             score = model_fn(perturbed_data, t*999)
         """
+        b_sz = x1.size(0)
         dt = 1. / sample_steps
         x = x1
         for i in range(sample_steps):
             num_t = i / sample_steps * (1.0 - eps) + eps
             if b_idx == 0:
                 log_info(f"sample_batch() i:{i:2d}, num_t:{num_t:.6f}")
-            t = torch.ones(x1.shape[0], requires_grad=False, device=self.device) * num_t
+            t = torch.ones(b_sz, requires_grad=False, device=self.device) * num_t
             pred = model(x, t * 999)
             x = x + pred * dt
         return x

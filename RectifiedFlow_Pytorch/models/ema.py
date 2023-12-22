@@ -48,6 +48,7 @@ class ExponentialMovingAverage:
       parameters = [p for p in parameters if p.requires_grad]
       for s_param, param in zip(self.shadow_params, parameters):
         s_param.sub_(one_minus_decay * (s_param - param))
+    return decay
 
   def copy_to(self, parameters):
     """
