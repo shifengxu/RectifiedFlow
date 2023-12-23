@@ -75,6 +75,7 @@ class RectifiedFlowSampling:
             b_cnt += 1
         c_data = config.data
         c, h, w = c_data.num_channels, c_data.image_size, c_data.image_size
+        log_info(f"  img_cnt: {img_cnt}")
         log_info(f"  b_sz  : {b_sz}")
         log_info(f"  b_cnt : {b_cnt}")
         log_info(f"  c     : {c}")
