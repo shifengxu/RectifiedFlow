@@ -4,8 +4,8 @@ Rectified Flow sampling
 import os.path
 import time
 import torch
-import losses
 import torch.utils.data as data
+from torch import optim
 
 from RectifiedFlow_Pytorch import utils
 from RectifiedFlow_Pytorch.datasets import get_train_test_datasets
@@ -29,6 +29,19 @@ class RectifiedFlowMiscellaneous:
     def init_model_ema_optimizer(self):
         """Create the score model."""
         args, config = self.args, self.config
+
+        def get_optimizer(params):
+            """Returns a flax optimizer object based on `config`."""
+            co = self.config.optim
+            lr, beta1, eps, w_decay = args.lr, co.beta1, co.eps, co.weight_decay
+            opt = optim.Adam(params, lr=lr, betas=(beta1, 0.999), eps=eps, weight_decay=w_decay)
+            log_info(f"  optimizer: {co.optimizer}")
+            log_info(f"  lr       : {lr}")
+            log_info(f"  beta1    : {beta1}")
+            log_info(f"  eps      : {eps}")
+            log_info(f"  w_decay  : {w_decay}")
+            return opt
+
         model_name = config.model.name
         log_info(f"  config.model.name: {model_name}")
         if model_name.lower() == 'ncsnpp':
@@ -55,7 +68,7 @@ class RectifiedFlowMiscellaneous:
         model.load_state_dict(states['model'], strict=True)
         ema = ExponentialMovingAverage(model.parameters(), decay=config.model.ema_rate)
         ema.load_state_dict(states['ema'])
-        optimizer = losses.get_optimizer(config, model.parameters())
+        optimizer = get_optimizer(model.parameters())
         optimizer.load_state_dict(states['optimizer'])
         log_info(f"  model.load_state_dict(states['model'], strict=True)")
         log_info(f"  ema.load_state_dict(states['ema'])")

@@ -33,11 +33,15 @@ class RectifiedFlowTraining:
         log_info(f"  eps        : {self.eps}")
         log_info(f"  step       : {self.step}")
         log_info(f"  step_new   : {self.step_new}")
+        self.start_time = None
+        self.batch_counter = 0
+        self.batch_total = 0
 
     def init_model_ema_optimizer(self):
         """Create the score model."""
         args, config = self.args, self.config
         model_name = config.model.name
+        log_info(f"RectifiedFlowTraining::init_model_ema_optimizer()")
         log_info(f"  config.model.name: {model_name}")
         if model_name.lower() == 'ncsnpp':
             model = NCSNpp(config)
@@ -45,6 +49,25 @@ class RectifiedFlowTraining:
             raise ValueError(f"Unknown model name: {model_name}")
         log_info(f"  model = model.to({self.device})")
         model = model.to(self.device)
+        if args.resume_ckpt_path:
+            model, ema, optimizer, step = self.init_from_ckpt(model)
+        else:
+            log_info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
+            model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
+            ema = ExponentialMovingAverage(model.parameters(), decay=args.ema_rate)
+            log_info(f"  ema constructed.")
+            log_info(f"  ema.num_updates: {ema.num_updates}")
+            log_info(f"  ema.decay      : {ema.decay}")
+            optimizer = self.get_optimizer(model.parameters())
+            step = 0
+
+        self.model = model
+        self.ema = ema
+        self.optimizer = optimizer
+        self.step = step
+
+    def init_from_ckpt(self, model):
+        args = self.args
         # The checkpoint has key like "module.sigma",
         # so here model needs to be DataParallel.
         log_info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
@@ -63,12 +86,12 @@ class RectifiedFlowTraining:
         model.load_state_dict(states['model'], strict=True)
         ema = ExponentialMovingAverage(model.parameters(), decay=args.ema_rate)
         log_info(f"  ema constructed.")
-        log_info(f"  ema.decay      : {ema.decay}")
-        log_info(f"  ema.num_updates: {ema.num_updates}")
         log_info(f"  ema.load_state_dict(states['ema'])")
         ema.load_state_dict(states['ema'])
-        log_info(f"  ema.decay      : {ema.decay}")
         log_info(f"  ema.num_updates: {ema.num_updates}")
+        log_info(f"  ema.decay (old): {ema.decay}")
+        ema.decay = args.ema_rate
+        log_info(f"  ema.decay (new): {ema.decay}")
         optimizer = self.get_optimizer(model.parameters())
         log_info(f"  optimizer.load_state_dict(states['optimizer'])")
         optimizer.load_state_dict(states['optimizer'])
@@ -76,17 +99,17 @@ class RectifiedFlowTraining:
         log_info(f"  states['step']: {step}")
         log_info(f"  load ckpt: {ckpt_path} . . . Done")
 
-        self.model = model
-        self.ema = ema
-        self.optimizer = optimizer
-        self.step = step
+        return model, ema, optimizer, step
 
-    def save_checkpoint(self):
+    def save_checkpoint(self, epoch=None):
         ckpt_path = self.args.save_ckpt_path
-        save_ckpt_dir = os.path.dirname(ckpt_path)
+        save_ckpt_dir, base_name = os.path.split(ckpt_path)
         if not os.path.exists(save_ckpt_dir):
             log_info(f"os.makedirs({save_ckpt_dir})")
             os.makedirs(save_ckpt_dir)
+        if epoch:
+            stem, ext = os.path.splitext(base_name)
+            ckpt_path = os.path.join(save_ckpt_dir, f"{stem}_E{epoch:03d}{ext}")
         log_info(f"resume_ckpt_path: {self.resume_ckpt_path}")
         log_info(f"Save latest ckpt: {ckpt_path} . . .")
         pure_model = self.model
@@ -164,6 +187,23 @@ class RectifiedFlowTraining:
         log_info(f"  num_workers: {num_workers}")
         return train_loader, test_loader
 
+    def calc_batch_total(self, train_loader, test_loader):
+        args = self.args
+        e_cnt = args.n_epochs
+        train_b_cnt = len(train_loader)
+        test_b_cnt = len(test_loader)
+        b_sz = args.batch_size
+        tr_limit = args.train_ds_limit
+        if tr_limit > 0:
+            train_b_cnt = (tr_limit - 1) // b_sz + 1
+        te_limit = args.test_ds_limit
+        if te_limit > 0:
+            test_b_cnt = (te_limit - 1) // b_sz + 1
+        return e_cnt * (train_b_cnt + test_b_cnt)
+
+    def get_elp_eta(self):
+        return utils.get_time_ttl_and_eta(self.start_time, self.batch_counter, self.batch_total)
+
     def train(self):
         args, config = self.args, self.config
         train_loader, test_loader = self.get_data_loaders()
@@ -171,38 +211,57 @@ class RectifiedFlowTraining:
         log_interval = args.log_interval
         e_cnt = args.n_epochs       # epoch count
         b_cnt = len(train_loader)   # batch count
-        eb_cnt = e_cnt * b_cnt      # epoch * batch
         lr = args.lr
-        start_time = time.time()
+        save_int = args.save_ckpt_interval
+        self.start_time = time.time()
+        self.batch_counter = 0
+        self.batch_total = self.calc_batch_total(train_loader, test_loader)
         self.model.train()
         log_info(f"RectifiedFlowTraining::train()")
+        log_info(f"  train_ds_limit: {self.args.train_ds_limit}")
+        log_info(f"  test_ds_limit : {self.args.test_ds_limit}")
+        log_info(f"  save_interval : {save_int}")
         log_info(f"  log_interval: {log_interval}")
         log_info(f"  image_size  : {config.data.image_size}")
         log_info(f"  b_sz        : {args.batch_size}")
         log_info(f"  lr          : {lr}")
         log_info(f"  loss_dual   : {args.loss_dual}")
         log_info(f"  loss_lambda : {args.loss_lambda}")
-        log_info(f"  b_cnt       : {b_cnt}")
+        log_info(f"  train_b_cnt : {b_cnt}")
+        log_info(f"  test_b_cnt  : {len(test_loader)}")
         log_info(f"  e_cnt       : {e_cnt}")
-        log_info(f"  eb_cnt      : {eb_cnt}")
+        log_info(f"  batch_total : {self.batch_total}")
+        ema_val_ds_avg = self.get_ema_avg_loss(test_loader, self.args.test_ds_limit)
+        log_info(f"Ori.ema_test_loss_avg: {ema_val_ds_avg:.6f}")
         for epoch in range(e_cnt):
             msg = f"lr={lr:8.7f}; ema_rate={self.ema_rate}"
             log_info(f"Epoch {epoch}/{e_cnt} ---------- {msg}")
             counter = 0
+            loss_sum = 0.
+            loss_cnt = 0
             for i, (x, y) in enumerate(train_loader):
+                self.batch_counter += 1
                 x = x.to(self.device)
                 x = 2.0 * x - 1.0
                 loss, loss_adj, ema_decay = self.train_batch(x)
+                loss_sum += loss
+                loss_cnt += 1
                 if i % log_interval == 0 or i == b_cnt - 1:
-                    elp, eta = utils.get_time_ttl_and_eta(start_time, epoch * b_cnt + i, eb_cnt)
+                    elp, eta = self.get_elp_eta()
                     loss_str = f"loss:{loss.item():6.4f}"
                     if self.args.loss_dual: loss_str += f", loss_adj:{loss_adj:6.4f}"
-                    log_info(f"E{epoch}.B{i:03d}/{b_cnt} {loss_str}; ema:{ema_decay}. elp:{elp}, eta:{eta}")
+                    log_info(f"E{epoch}.B{i:03d}/{b_cnt} {loss_str}; ema:{ema_decay:.4f}. elp:{elp}, eta:{eta}")
                 counter += x.size(0)
                 if 0 < args.train_ds_limit <= counter:
                     log_info(f"break epoch: counter >= train_ds_limit ({counter} >= {args.train_ds_limit})")
                     break
             # for
+            loss_avg = loss_sum / loss_cnt
+            ema_val_ds_avg = self.get_ema_avg_loss(test_loader, self.args.test_ds_limit)
+            log_info(f"E{epoch}.training_loss_avg: {loss_avg:.6f}")
+            log_info(f"E{epoch}.ema_test_loss_avg: {ema_val_ds_avg:.6f}")
+            if 0 < epoch < e_cnt - 1 and save_int > 0 and epoch % save_int == 0:
+                self.save_checkpoint(epoch)
         # for
         self.save_checkpoint()
         return 0
@@ -263,4 +322,59 @@ class RectifiedFlowTraining:
         # mse = (value1 - value2).square().sum(dim=(1, 2, 3)).mean(dim=0)
         mse = (value1 - value2).square().mean()
         return mse
-    # class
+
+    def get_ema_avg_loss(self, data_loader, dataset_limit=0):
+        """
+        Use dedicated random generator (with the same seed), to make sure that
+        each time we run this function, it uses the same z0 and t.
+         """
+        log_info(f"get_ema_avg_loss()")
+        log_info(f"  dataset_limit={dataset_limit}")
+        seed = self.args.seed
+        generator = torch.Generator(device=self.device)
+        generator.manual_seed(seed)
+        log_info(f"  generator.manual_seed({seed})")
+        self.ema.store(self.model.parameters())
+        self.ema.copy_to(self.model.parameters())
+        self.model.eval()
+        counter = 0
+        loss_sum = 0.
+        loss_cnt = 0
+        b_cnt = len(data_loader)
+        with torch.no_grad():
+            for bi, (x, y) in enumerate(data_loader):
+                self.batch_counter += 1
+                x = x.to(self.device)
+                x = 2.0 * x - 1.0
+                b_sz, c, h, w = x.size()
+                counter += b_sz
+                z0 = torch.randn(b_sz, c, h, w, generator=generator, device=self.device)
+                if bi == 0:
+                    log_info(f"  z0[0]:{z0[0][0][0][0]:7.4f}, z0[-1]:{z0[-1][-1][-1][-1]:7.4f}")
+                target = x - z0
+                t = torch.rand(b_sz, generator=generator, device=self.device)
+                if bi == 0:
+                    log_info(f"  ts[0]:{t[0]:7.4f}, ts[-1]:{t[-1]:7.4f}")
+                t = torch.mul(t, 1.0 - self.eps)
+                t = torch.add(t, self.eps)
+                t_expand = t.view(-1, 1, 1, 1)
+                perturbed_data = t_expand * x + (1. - t_expand) * z0
+                predict = self.model(perturbed_data, t * 999)
+                loss = self.compute_mse(predict, target)
+                loss_sum += loss
+                loss_cnt += 1
+                if bi % self.args.log_interval == 0 or bi + 1 == b_cnt:
+                    elp, eta = self.get_elp_eta()
+                    loss_avg = loss_sum / loss_cnt
+                    log_info(f"get_ema_avg_loss::B{bi:03d}/{b_cnt}. loss_avg:{loss_avg:.6f}. elp:{elp}, eta:{eta}")
+                if 0 < dataset_limit <= counter:
+                    log_info(f"get_ema_avg_loss(): break iteration as counter={counter}")
+                    break
+            # for
+        # with
+        self.ema.restore(self.model.parameters())
+        self.model.train()
+        loss_avg = loss_sum / loss_cnt
+        return loss_avg
+
+# class
