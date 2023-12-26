@@ -49,8 +49,8 @@ class RectifiedFlowTraining:
             raise ValueError(f"Unknown model name: {model_name}")
         log_info(f"  model = model.to({self.device})")
         model = model.to(self.device)
-        if args.resume_ckpt_path:
-            model, ema, optimizer, step = self.init_from_ckpt(model)
+        if self.resume_ckpt_path:
+            model, ema, optimizer, step, ckpt_epoch = self.init_from_ckpt(model)
         else:
             log_info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
             model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
@@ -60,18 +60,16 @@ class RectifiedFlowTraining:
             log_info(f"  ema.decay      : {ema.decay}")
             optimizer = self.get_optimizer(model.parameters())
             step = 0
+            ckpt_epoch = 0
 
         self.model = model
         self.ema = ema
         self.optimizer = optimizer
         self.step = step
+        return ckpt_epoch
 
     def init_from_ckpt(self, model):
         args = self.args
-        # The checkpoint has key like "module.sigma",
-        # so here model needs to be DataParallel.
-        log_info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
-        model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
         ckpt_path = self.resume_ckpt_path
         log_info(f"  load ckpt: {ckpt_path} . . .")
         states = torch.load(ckpt_path, map_location=self.device)
@@ -81,9 +79,18 @@ class RectifiedFlowTraining:
         # 'model'    : states['model'].state_dict(),
         # 'ema'      : states['ema'].state_dict(),
         # 'step'     : states['step']
-
-        log_info(f"  model.load_state_dict(states['model'], strict=True)")
-        model.load_state_dict(states['model'], strict=True)
+        if states.get('pure_flag'):
+            log_info(f"  model.load_state_dict(states['model'], strict=True)")
+            model.load_state_dict(states['model'], strict=True)
+            log_info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
+            model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
+        else:
+            # The checkpoint has key like "module.sigma",
+            # so here model needs to be DataParallel.
+            log_info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
+            model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
+            log_info(f"  model.load_state_dict(states['model'], strict=True)")
+            model.load_state_dict(states['model'], strict=True)
         ema = ExponentialMovingAverage(model.parameters(), decay=args.ema_rate)
         log_info(f"  ema constructed.")
         log_info(f"  ema.load_state_dict(states['ema'])")
@@ -96,18 +103,20 @@ class RectifiedFlowTraining:
         log_info(f"  optimizer.load_state_dict(states['optimizer'])")
         optimizer.load_state_dict(states['optimizer'])
         step = states['step']
-        log_info(f"  states['step']: {step}")
+        log_info(f"  states['step'] : {step}")
+        epoch = states.get('epoch')
+        log_info(f"  states['epoch']: {epoch}")
         log_info(f"  load ckpt: {ckpt_path} . . . Done")
 
-        return model, ema, optimizer, step
+        return model, ema, optimizer, step, epoch
 
-    def save_checkpoint(self, epoch=None):
+    def save_checkpoint(self, epoch, epoch_in_file_name=True):
         ckpt_path = self.args.save_ckpt_path
         save_ckpt_dir, base_name = os.path.split(ckpt_path)
         if not os.path.exists(save_ckpt_dir):
             log_info(f"os.makedirs({save_ckpt_dir})")
             os.makedirs(save_ckpt_dir)
-        if epoch:
+        if epoch_in_file_name:
             stem, ext = os.path.splitext(base_name)
             ckpt_path = os.path.join(save_ckpt_dir, f"{stem}_E{epoch:03d}{ext}")
         log_info(f"resume_ckpt_path: {self.resume_ckpt_path}")
@@ -125,6 +134,7 @@ class RectifiedFlowTraining:
             'step_new'   : self.step_new,
             'loss_dual'  : self.args.loss_dual,
             'loss_lambda': self.args.loss_lambda,
+            'epoch'      : epoch,
         }
         log_info(f"  pure_flag  : {saved_state['pure_flag']}")
         log_info(f"  optimizer  : {type(self.optimizer).__name__}")
@@ -187,9 +197,9 @@ class RectifiedFlowTraining:
         log_info(f"  num_workers: {num_workers}")
         return train_loader, test_loader
 
-    def calc_batch_total(self, train_loader, test_loader):
+    def calc_batch_total(self, train_loader, test_loader, ckpt_epoch):
         args = self.args
-        e_cnt = args.n_epochs
+        e_cnt = args.n_epochs - ckpt_epoch
         train_b_cnt = len(train_loader)
         test_b_cnt = len(test_loader)
         b_sz = args.batch_size
@@ -207,7 +217,7 @@ class RectifiedFlowTraining:
     def train(self):
         args, config = self.args, self.config
         train_loader, test_loader = self.get_data_loaders()
-        self.init_model_ema_optimizer()
+        ckpt_epoch = self.init_model_ema_optimizer() or 0  # change None to 0
         log_interval = args.log_interval
         e_cnt = args.n_epochs       # epoch count
         b_cnt = len(train_loader)   # batch count
@@ -215,7 +225,7 @@ class RectifiedFlowTraining:
         save_int = args.save_ckpt_interval
         self.start_time = time.time()
         self.batch_counter = 0
-        self.batch_total = self.calc_batch_total(train_loader, test_loader)
+        self.batch_total = self.calc_batch_total(train_loader, test_loader, ckpt_epoch)
         self.model.train()
         log_info(f"RectifiedFlowTraining::train()")
         log_info(f"  train_ds_limit: {self.args.train_ds_limit}")
@@ -230,10 +240,13 @@ class RectifiedFlowTraining:
         log_info(f"  train_b_cnt : {b_cnt}")
         log_info(f"  test_b_cnt  : {len(test_loader)}")
         log_info(f"  e_cnt       : {e_cnt}")
+        log_info(f"  ckpt_epoch  : {ckpt_epoch}")
         log_info(f"  batch_total : {self.batch_total}")
-        ema_val_ds_avg = self.get_ema_avg_loss(test_loader, self.args.test_ds_limit)
-        log_info(f"Ori.ema_test_loss_avg: {ema_val_ds_avg:.6f}")
-        for epoch in range(e_cnt):
+        if self.resume_ckpt_path:
+            # if the model is resumed from some ckpt, then calculate EMA avg loss.
+            ema_val_ds_avg = self.get_ema_avg_loss(test_loader, self.args.test_ds_limit)
+            log_info(f"Ori.ema_test_loss_avg: {ema_val_ds_avg:.6f}")
+        for epoch in range(ckpt_epoch+1, e_cnt+1):
             msg = f"lr={lr:8.7f}; ema_rate={self.ema_rate}"
             log_info(f"Epoch {epoch}/{e_cnt} ---------- {msg}")
             counter = 0
@@ -260,10 +273,10 @@ class RectifiedFlowTraining:
             ema_val_ds_avg = self.get_ema_avg_loss(test_loader, self.args.test_ds_limit)
             log_info(f"E{epoch}.training_loss_avg: {loss_avg:.6f}")
             log_info(f"E{epoch}.ema_test_loss_avg: {ema_val_ds_avg:.6f}")
-            if 0 < epoch < e_cnt - 1 and save_int > 0 and epoch % save_int == 0:
-                self.save_checkpoint(epoch)
+            if 0 < epoch < e_cnt and save_int > 0 and epoch % save_int == 0:
+                self.save_checkpoint(epoch, epoch_in_file_name=True)
         # for
-        self.save_checkpoint()
+        self.save_checkpoint(e_cnt, epoch_in_file_name=False)
         return 0
 
     def train_batch(self, x_batch):
