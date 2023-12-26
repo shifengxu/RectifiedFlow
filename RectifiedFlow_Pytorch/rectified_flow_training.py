@@ -9,6 +9,7 @@ from torch import optim
 
 from RectifiedFlow_Pytorch import utils
 from RectifiedFlow_Pytorch.datasets import get_train_test_datasets
+from RectifiedFlow_Pytorch.datasets import data_scaler
 from RectifiedFlow_Pytorch.models.ncsnpp import NCSNpp
 from utils import log_info as log_info
 from models.ema import ExponentialMovingAverage
@@ -255,7 +256,7 @@ class RectifiedFlowTraining:
             for i, (x, y) in enumerate(train_loader):
                 self.batch_counter += 1
                 x = x.to(self.device)
-                x = 2.0 * x - 1.0
+                x = data_scaler(config, x)
                 loss, loss_adj, ema_decay = self.train_batch(x)
                 loss_sum += loss
                 loss_cnt += 1
@@ -358,7 +359,7 @@ class RectifiedFlowTraining:
             for bi, (x, y) in enumerate(data_loader):
                 self.batch_counter += 1
                 x = x.to(self.device)
-                x = 2.0 * x - 1.0
+                x = data_scaler(self.config, x)
                 b_sz, c, h, w = x.size()
                 counter += b_sz
                 z0 = torch.randn(b_sz, c, h, w, generator=generator, device=self.device)

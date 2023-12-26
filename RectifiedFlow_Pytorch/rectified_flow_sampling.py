@@ -8,6 +8,7 @@ import torchvision.utils as tvu
 from RectifiedFlow_Pytorch import utils
 from RectifiedFlow_Pytorch.models.ema import ExponentialMovingAverage
 from RectifiedFlow_Pytorch.models.ncsnpp import NCSNpp
+from datasets import data_inverse_scaler
 from utils import log_info as log_info
 
 
@@ -119,7 +120,7 @@ class RectifiedFlowSampling:
 
     def save_images(self, x0, time_start, b_cnt, b_idx, b_sz):
         """ save x0 """
-        x0 = (x0 + 1.0) / 2.0  # invert: [-1, 1] ==> [0, 1]
+        x0 = data_inverse_scaler(self.config, x0)
         img_cnt = len(x0)
         img_dir = self.args.sample_output_dir
         if not os.path.exists(img_dir):

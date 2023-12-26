@@ -44,3 +44,18 @@ def get_train_test_datasets(args, config):
         raise ValueError(f"Unknown config.data.dataset: {config.data.dataset}")
 
     return train_dataset, test_dataset
+
+def data_scaler(config, x):
+    if config.data.centered:
+        # Rescale to [-1, 1]
+        return x * 2. - 1.
+    else:
+        return x
+
+
+def data_inverse_scaler(config, x):
+    if config.data.centered:
+        # Rescale [-1, 1] to [0, 1]
+        return (x + 1.) / 2.
+    else:
+        return x

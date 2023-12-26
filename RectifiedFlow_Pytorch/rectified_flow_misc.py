@@ -8,7 +8,7 @@ import torch.utils.data as data
 from torch import optim
 
 from RectifiedFlow_Pytorch import utils
-from RectifiedFlow_Pytorch.datasets import get_train_test_datasets
+from RectifiedFlow_Pytorch.datasets import get_train_test_datasets, data_scaler
 from RectifiedFlow_Pytorch.models.ncsnpp import NCSNpp
 from utils import log_info as log_info
 from models.ema import ExponentialMovingAverage
@@ -183,7 +183,7 @@ class RectifiedFlowMiscellaneous:
                 for j in range(loc_cnt): delta_lst_lst.append([])
                 for b_idx, (x, y) in enumerate(train_loader):
                     x = x.to(self.device)
-                    x = x * 2.0 - 1.0
+                    x = data_scaler(self.config, x)
                     b_sz, ch, h, w = x.shape  # batch_size, channel, height, width
                     t = torch.ones((b_sz,), dtype=torch.float, device=self.device)
                     t = t * ts / 1000
