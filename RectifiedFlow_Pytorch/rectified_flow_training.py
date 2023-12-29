@@ -3,6 +3,7 @@ Rectified Flow Training
 """
 import os.path
 import time
+import psutil
 import torch
 import torch.utils.data as data
 from torch import optim
@@ -247,6 +248,7 @@ class RectifiedFlowTraining:
             # if the model is resumed from some ckpt, then calculate EMA avg loss.
             ema_val_ds_avg = self.get_ema_avg_loss(test_loader, self.args.test_ds_limit)
             log_info(f"Ori.ema_test_loss_avg: {ema_val_ds_avg:.6f}")
+        proc = psutil.Process()
         for epoch in range(ckpt_epoch+1, e_cnt+1):
             msg = f"lr={lr:8.7f}; ema_rate={self.ema_rate}"
             log_info(f"Epoch {epoch}/{e_cnt} ---------- {msg}")
@@ -261,10 +263,12 @@ class RectifiedFlowTraining:
                 loss_sum += loss
                 loss_cnt += 1
                 if i % log_interval == 0 or i == b_cnt - 1:
+                    rss = proc.memory_info().rss
                     elp, eta = self.get_elp_eta()
-                    loss_str = f"loss:{loss.item():6.4f}"
+                    loss_str = f"loss:{loss:6.4f}"
                     if self.args.loss_dual: loss_str += f", loss_adj:{loss_adj:6.4f}"
-                    log_info(f"E{epoch}.B{i:03d}/{b_cnt} {loss_str}; ema:{ema_decay:.4f}. elp:{elp}, eta:{eta}")
+                    log_info(f"E{epoch}.B{i:03d}/{b_cnt} {loss_str}; ema:{ema_decay:.4f}. "
+                             f"elp:{elp}, eta:{eta}. rss:{rss:11d}")
                 counter += x.size(0)
                 if 0 < args.train_ds_limit <= counter:
                     log_info(f"break epoch: counter >= train_ds_limit ({counter} >= {args.train_ds_limit})")
@@ -286,17 +290,19 @@ class RectifiedFlowTraining:
         self.optimizer.zero_grad()
         if self.args.loss_dual:
             loss, loss_adj = self.calc_loss_dual(x_batch, z0, b_sz)
-            loss = loss + loss_adj * self.args.loss_lambda
+            loss_sum = loss + loss_adj * self.args.loss_lambda
         else:
-            loss = self.calc_loss(x_batch, z0, b_sz)
-            loss_adj = 0.
-        loss.backward()
+            loss_sum = loss = self.calc_loss(x_batch, z0, b_sz)
+            loss_adj = torch.tensor(0.)
+        loss_sum.backward()
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.optim.grad_clip)
         self.optimizer.step()
         decay = self.ema.update(self.model.parameters())
         self.step_new += 1
         self.step += 1
-        return loss, loss_adj, decay
+        # here, we must return loss.item(), and not loss.
+        # If return loss, it will cause memory leak.
+        return loss.item(), loss_adj.item(), decay
 
     def calc_loss(self, x_batch, z0, b_sz):
         target = x_batch - z0
