@@ -5,79 +5,20 @@ import os.path
 import time
 import torch
 import torch.utils.data as data
-from torch import optim
 
 from RectifiedFlow_Pytorch import utils
 from RectifiedFlow_Pytorch.datasets import get_train_test_datasets, data_scaler
-from RectifiedFlow_Pytorch.models.ncsnpp import NCSNpp
+from RectifiedFlow_Pytorch.rectified_flow_base import RectifiedFlowBase
 from utils import log_info as log_info
-from models.ema import ExponentialMovingAverage
 
-class RectifiedFlowMiscellaneous:
-    def __init__(self, args, config, device=None):
-        self.args = args
-        self.config = config
-        self.device = device
+class RectifiedFlowMiscellaneous(RectifiedFlowBase):
+    def __init__(self, args, config):
+        super().__init__(args, config)
         self.model = None
-        self.ema = None
-        self.optimizer = None
         self.eps = 1e-3
         log_info(f"RectifiedFlowMiscellaneous()")
         log_info(f"  eps        : {self.eps}")
         log_info(f"  device     : {self.device}")
-
-    def init_model_ema_optimizer(self):
-        """Create the score model."""
-        args, config = self.args, self.config
-
-        def get_optimizer(params):
-            """Returns a flax optimizer object based on `config`."""
-            co = self.config.optim
-            lr, beta1, eps, w_decay = args.lr, co.beta1, co.eps, co.weight_decay
-            opt = optim.Adam(params, lr=lr, betas=(beta1, 0.999), eps=eps, weight_decay=w_decay)
-            log_info(f"  optimizer: {co.optimizer}")
-            log_info(f"  lr       : {lr}")
-            log_info(f"  beta1    : {beta1}")
-            log_info(f"  eps      : {eps}")
-            log_info(f"  w_decay  : {w_decay}")
-            return opt
-
-        model_name = config.model.name
-        log_info(f"  config.model.name: {model_name}")
-        if model_name.lower() == 'ncsnpp':
-            model = NCSNpp(config)
-        else:
-            raise ValueError(f"Unknown model name: {model_name}")
-        log_info(f"  model = model.to({self.device})")
-        model = model.to(self.device)
-        # The checkpoint has key like "module.sigma",
-        # so here model needs to be DataParallel.
-        log_info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
-        model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
-        ckpt_path = args.sample_ckpt_path
-        log_info(f"  load ckpt: {ckpt_path} . . .")
-        states = torch.load(ckpt_path, map_location=self.device)
-        # print(states['model'].keys())
-        # states is like this:
-        # 'optimizer': states['optimizer'].state_dict(),
-        # 'model'    : states['model'].state_dict(),
-        # 'ema'      : states['ema'].state_dict(),
-        # 'step'     : states['step']
-
-        log_info(f"  states['step']: {states['step']}")
-        model.load_state_dict(states['model'], strict=True)
-        ema = ExponentialMovingAverage(model.parameters(), decay=config.model.ema_rate)
-        ema.load_state_dict(states['ema'])
-        optimizer = get_optimizer(model.parameters())
-        optimizer.load_state_dict(states['optimizer'])
-        log_info(f"  model.load_state_dict(states['model'], strict=True)")
-        log_info(f"  ema.load_state_dict(states['ema'])")
-        log_info(f"  optimizer.load_state_dict(states['optimizer'])")
-        log_info(f"  load ckpt: {ckpt_path} . . . Done")
-
-        self.model = model
-        self.ema = ema
-        self.optimizer = optimizer
 
     def get_data_loaders(self, train_shuffle=True, test_shuffle=False):
         args, config = self.args, self.config
@@ -153,9 +94,9 @@ class RectifiedFlowMiscellaneous:
 
     def run_delta_between_prediction_and_ground_truth(self):
         """ get the statistic info of the delta between prediction and ground_truth """
+        args = self.args
         train_loader, test_loader = self.get_data_loaders()
-        self.init_model_ema_optimizer()
-        self.model.eval()
+        self.model = self.load_ckpt(args.resume_ckpt_path, eval_mode=True, only_return_model=True)
 
         # ts_list = [0, 99, 199, 299, 399, 499, 599, 699, 799, 899, 999]
         ts_list = [99, 199, 299, 399, 499, 599, 699, 799, 899, 999]

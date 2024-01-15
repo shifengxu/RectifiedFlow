@@ -12,14 +12,13 @@ from RectifiedFlow_Pytorch import utils
 from RectifiedFlow_Pytorch.datasets import get_train_test_datasets
 from RectifiedFlow_Pytorch.datasets import data_scaler
 from RectifiedFlow_Pytorch.models.ncsnpp import NCSNpp
+from RectifiedFlow_Pytorch.rectified_flow_base import RectifiedFlowBase
 from utils import log_info as log_info
 from models.ema import ExponentialMovingAverage
 
-class RectifiedFlowTraining:
-    def __init__(self, args, config, device=None):
-        self.args = args
-        self.config = config
-        self.device = device
+class RectifiedFlowTraining(RectifiedFlowBase):
+    def __init__(self, args, config):
+        super().__init__(args, config)
         self.resume_ckpt_path = args.resume_ckpt_path
         self.model = None
         self.ema = None
@@ -42,18 +41,23 @@ class RectifiedFlowTraining:
     def init_model_ema_optimizer(self):
         """Create the score model."""
         args, config = self.args, self.config
-        model_name = config.model.name
-        log_info(f"RectifiedFlowTraining::init_model_ema_optimizer()")
-        log_info(f"  config.model.name: {model_name}")
-        if model_name.lower() == 'ncsnpp':
-            model = NCSNpp(config)
-        else:
-            raise ValueError(f"Unknown model name: {model_name}")
-        log_info(f"  model = model.to({self.device})")
-        model = model.to(self.device)
         if self.resume_ckpt_path:
-            model, ema, optimizer, step, ckpt_epoch = self.init_from_ckpt(model)
+            states = self.load_ckpt(self.resume_ckpt_path, eval_mode=False, only_return_model=False)
+            model      = states['model']
+            ema        = states['ema']
+            optimizer  = states['optimizer']
+            step       = states['step']
+            ckpt_epoch = states['epoch']
         else:
+            model_name = config.model.name
+            log_info(f"RectifiedFlowTraining::init_model_ema_optimizer()")
+            log_info(f"  config.model.name: {model_name}")
+            if model_name.lower() == 'ncsnpp':
+                model = NCSNpp(config)
+            else:
+                raise ValueError(f"Unknown model name: {model_name}")
+            log_info(f"  model = model.to({self.device})")
+            model = model.to(self.device)
             log_info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
             model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
             ema = ExponentialMovingAverage(model.parameters(), decay=args.ema_rate)
@@ -69,85 +73,6 @@ class RectifiedFlowTraining:
         self.optimizer = optimizer
         self.step = step
         return ckpt_epoch
-
-    def init_from_ckpt(self, model):
-        args = self.args
-        ckpt_path = self.resume_ckpt_path
-        log_info(f"  load ckpt: {ckpt_path} . . .")
-        states = torch.load(ckpt_path, map_location=self.device)
-        # print(states['model'].keys())
-        # states is like this:
-        # 'optimizer': states['optimizer'].state_dict(),
-        # 'model'    : states['model'].state_dict(),
-        # 'ema'      : states['ema'].state_dict(),
-        # 'step'     : states['step']
-        if states.get('pure_flag'):
-            log_info(f"  model.load_state_dict(states['model'], strict=True)")
-            model.load_state_dict(states['model'], strict=True)
-            log_info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
-            model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
-        else:
-            # The checkpoint has key like "module.sigma",
-            # so here model needs to be DataParallel.
-            log_info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
-            model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
-            log_info(f"  model.load_state_dict(states['model'], strict=True)")
-            model.load_state_dict(states['model'], strict=True)
-        ema = ExponentialMovingAverage(model.parameters(), decay=args.ema_rate)
-        log_info(f"  ema constructed.")
-        log_info(f"  ema.load_state_dict(states['ema'])")
-        ema.load_state_dict(states['ema'])
-        log_info(f"  ema.num_updates: {ema.num_updates}")
-        log_info(f"  ema.decay (old): {ema.decay}")
-        ema.decay = args.ema_rate
-        log_info(f"  ema.decay (new): {ema.decay}")
-        optimizer = self.get_optimizer(model.parameters())
-        log_info(f"  optimizer.load_state_dict(states['optimizer'])")
-        optimizer.load_state_dict(states['optimizer'])
-        step = states['step']
-        log_info(f"  states['step'] : {step}")
-        epoch = states.get('epoch')
-        log_info(f"  states['epoch']: {epoch}")
-        log_info(f"  load ckpt: {ckpt_path} . . . Done")
-
-        return model, ema, optimizer, step, epoch
-
-    def save_checkpoint(self, epoch, epoch_in_file_name=True):
-        ckpt_path = self.args.save_ckpt_path
-        save_ckpt_dir, base_name = os.path.split(ckpt_path)
-        if not os.path.exists(save_ckpt_dir):
-            log_info(f"os.makedirs({save_ckpt_dir})")
-            os.makedirs(save_ckpt_dir)
-        if epoch_in_file_name:
-            stem, ext = os.path.splitext(base_name)
-            ckpt_path = os.path.join(save_ckpt_dir, f"{stem}_E{epoch:03d}{ext}")
-        log_info(f"resume_ckpt_path: {self.resume_ckpt_path}")
-        log_info(f"Save latest ckpt: {ckpt_path} . . .")
-        pure_model = self.model
-        if isinstance(pure_model, torch.nn.DataParallel):
-            # save pure model, not DataParallel.
-            pure_model = pure_model.module
-        saved_state = {
-            'pure_flag'  : True,  # flag for pure model.
-            'optimizer'  : self.optimizer.state_dict(),
-            'model'      : pure_model.state_dict(),
-            'ema'        : self.ema.state_dict(),
-            'step'       : self.step,
-            'step_new'   : self.step_new,
-            'loss_dual'  : self.args.loss_dual,
-            'loss_lambda': self.args.loss_lambda,
-            'epoch'      : epoch,
-        }
-        log_info(f"  pure_flag  : {saved_state['pure_flag']}")
-        log_info(f"  optimizer  : {type(self.optimizer).__name__}")
-        log_info(f"  model      : {type(pure_model).__name__}")
-        log_info(f"  ema        : {type(self.ema).__name__}")
-        log_info(f"  step       : {saved_state['step']}")
-        log_info(f"  step_new   : {saved_state['step_new']}")
-        log_info(f"  loss_dual  : {saved_state['loss_dual']}")
-        log_info(f"  loss_lambda: {saved_state['loss_lambda']}")
-        torch.save(saved_state, ckpt_path)
-        log_info(f"Save latest ckpt: {ckpt_path} . . . Done")
 
     def get_optimizer(self, params):
         """Returns a flax optimizer object based on `config`."""
@@ -279,9 +204,9 @@ class RectifiedFlowTraining:
             log_info(f"E{epoch}.training_loss_avg: {loss_avg:.6f}")
             log_info(f"E{epoch}.ema_test_loss_avg: {ema_val_ds_avg:.6f}")
             if 0 < epoch < e_cnt and save_int > 0 and epoch % save_int == 0:
-                self.save_checkpoint(epoch, epoch_in_file_name=True)
+                self.save_ckpt(self.model, self.ema, self.optimizer, epoch, self.step, self.step_new, True)
         # for
-        self.save_checkpoint(e_cnt, epoch_in_file_name=False)
+        self.save_ckpt(self.model, self.ema, self.optimizer, e_cnt, self.step, self.step_new, False)
         return 0
 
     def train_batch(self, x_batch):

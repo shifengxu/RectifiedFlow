@@ -6,69 +6,19 @@ import time
 import torch
 import torchvision.utils as tvu
 from RectifiedFlow_Pytorch import utils
-from RectifiedFlow_Pytorch.models.ema import ExponentialMovingAverage
-from RectifiedFlow_Pytorch.models.ncsnpp import NCSNpp
+from RectifiedFlow_Pytorch.rectified_flow_base import RectifiedFlowBase
 from datasets import data_inverse_scaler
 from utils import log_info as log_info
 
 
-class RectifiedFlowSampling:
-    def __init__(self, args, config, device=None):
-        self.args = args
-        self.config = config
-        self.device = device
-
-    def create_model(self):
-        """Create the score model."""
-        args, config = self.args, self.config
-        model_name = config.model.name
-        log_info(f"  config.model.name: {model_name}")
-        if model_name.lower() == 'ncsnpp':
-            model = NCSNpp(config)
-        else:
-            raise ValueError(f"Unknown model name: {model_name}")
-        log_info(f"  model = model.to({self.device})")
-        model = model.to(self.device)
-        ckpt_path = args.sample_ckpt_path
-        log_info(f"  load ckpt: {ckpt_path} . . .")
-        states = torch.load(ckpt_path, map_location=self.device)
-        # print(states['model'].keys())
-        # states is like this:
-        # 'optimizer': states['optimizer'].state_dict(),
-        # 'model'    : states['model'].state_dict(),
-        # 'ema'      : states['ema'].state_dict(),
-        # 'step'     : states['step']
-        log_info(f"  states['step']       : {states['step']}")
-        log_info(f"  states['step_new']   : {states.get('step_new')}")
-        log_info(f"  states['loss_dual']  : {states.get('loss_dual')}")
-        log_info(f"  states['loss_lambda']: {states.get('loss_lambda')}")
-        log_info(f"  states['pure_flag']  : {states.get('pure_flag')}")
-        if states.get('pure_flag'):
-            log_info(f"  model.load_state_dict(states['model'], strict=True)")
-            model.load_state_dict(states['model'], strict=True)
-            log_info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
-            model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
-        else:
-            # The checkpoint has key like "module.sigma",
-            # so here model needs to be DataParallel.
-            log_info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
-            model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
-            log_info(f"  model.load_state_dict(states['model'], strict=True)")
-            model.load_state_dict(states['model'], strict=True)
-        model.eval()
-        log_info(f"  model.eval()")
-        ema = ExponentialMovingAverage(model.parameters(), decay=config.model.ema_rate)
-        ema.load_state_dict(states['ema'])
-        ema.copy_to(model.parameters())
-        log_info(f"  ema.load_state_dict(states['ema'])")
-        log_info(f"  ema.copy_to(model.parameters())")
-        log_info(f"  load ckpt: {ckpt_path} . . . Done")
-        return model
+class RectifiedFlowSampling(RectifiedFlowBase):
+    def __init__(self, args, config):
+        super().__init__(args, config)
 
     def sample(self, sample_steps=10):
         args, config = self.args, self.config
         log_info(f"RectifiedFlowSampling::sample(sample_steps={sample_steps})")
-        model = self.create_model()
+        model = self.load_ckpt(args.sample_ckpt_path, eval_mode=True, only_return_model=True)
         img_cnt = args.sample_count
         b_sz = args.sample_batch_size
         b_cnt = img_cnt // b_sz
