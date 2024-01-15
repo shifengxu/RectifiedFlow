@@ -1,6 +1,7 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
-
+import torchvision as tv
 from utils import log_info
 
 def run_delta_plot_distribution():
@@ -40,10 +41,13 @@ def run_delta_plot_distribution():
     for ts_list in ts_list_list:
         fig = plt.figure(figsize=(12, 8))
         # ax = fig.add_subplot(1, 1, 1)
+        std = None
         for ts in ts_list:
             x = read_floats_from_file(f"{root_dir}/ts{ts:03d}_dim{c}_{h:03d}_{w:03d}.txt")
-            std = np.std(x)
-            bins = np.linspace(-std * 3, std * 3, num=bin_cnt + 1, endpoint=True)
+            if std is None:
+                std = np.std(x)
+            # std = 0.7
+            bins = np.linspace(-std * 3.5, std * 3.5, num=bin_cnt + 1, endpoint=True)
             ts_continue = float(ts) / 1000. * (1. - eps) + eps
             plt.hist(x, bins=bins, histtype='step', label=f"t={ts_continue:.4f}")
         # for
@@ -88,10 +92,47 @@ def fid_train_from_scratch_celeba():
     print(f"file saved: {f_path}")
     plt.close()
 
+def merge_image_col_row():
+    root_dir = './output1_church_sampling'
+    lambda_arr = ['0.0', '0.1', '0.2', '0.3', '0.4']
+    step_arr = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10']
+    # step_arr = ['06', '07', '08', '09', '10']
+    save_dir = os.path.join(root_dir, f"merged_all_lambda_step01-10")
+    if not os.path.exists(save_dir):
+        print(f"mkdirs: {save_dir}")
+        os.makedirs(save_dir)
+    first_dir = os.path.join(root_dir, f"gen_lambda{lambda_arr[0]}_step{step_arr[0]}")
+    fname_list = os.listdir(first_dir)
+    fname_list.sort()
+    # fname_list = ['00084.png']
+    for fname in fname_list:
+        img_arr = []
+        for step in step_arr:
+            for lda in lambda_arr:
+                img_path = os.path.join(root_dir, f"gen_lambda{lda}_step{step}", fname)
+                img = tv.io.read_image(img_path)
+                img = img.float()
+                img /= 255.0
+                img_arr.append(img)
+                # tv.utils.save_image(img, os.path.join(save_dir, f"lambda{lda}_step{step}.png"))
+            # for
+        # for
+        save_img_path = os.path.join(save_dir, fname)
+        tv.utils.save_image(img_arr, save_img_path, nrow=len(lambda_arr))
+        print(f"save image: {save_img_path}")
+    # for fname
+    with open(os.path.join(save_dir, f"ReadMe.txt"), 'w') as fptr:
+        line = ", ".join(step_arr)
+        fptr.write(f"row step: {line}\n")
+        line = ", ".join(lambda_arr)
+        fptr.write(f"col lambda: {line}\n")
+    # with
+
 def main():
     """ entry point """
     # run_delta_plot_distribution()
-    fid_train_from_scratch_celeba()
+    # fid_train_from_scratch_celeba()
+    merge_image_col_row()
 
 if __name__ == '__main__':
     main()
