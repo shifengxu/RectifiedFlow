@@ -27,12 +27,12 @@ class RectifiedFlowSampling(RectifiedFlowBase):
         c_data = config.data
         c, h, w = c_data.num_channels, c_data.image_size, c_data.image_size
         log_info(f"  img_cnt: {img_cnt}")
-        log_info(f"  b_sz  : {b_sz}")
-        log_info(f"  b_cnt : {b_cnt}")
-        log_info(f"  c     : {c}")
-        log_info(f"  h     : {h}")
-        log_info(f"  w     : {w}")
-        log_info(f"  steps : {sample_steps}")
+        log_info(f"  b_sz   : {b_sz}")
+        log_info(f"  b_cnt  : {b_cnt}")
+        log_info(f"  c      : {c}")
+        log_info(f"  h      : {h}")
+        log_info(f"  w      : {w}")
+        log_info(f"  steps  : {sample_steps}")
         time_start = time.time()
         with torch.no_grad():
             for b_idx in range(b_cnt):

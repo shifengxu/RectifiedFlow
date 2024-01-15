@@ -74,18 +74,6 @@ class RectifiedFlowTraining(RectifiedFlowBase):
         self.step = step
         return ckpt_epoch
 
-    def get_optimizer(self, params):
-        """Returns a flax optimizer object based on `config`."""
-        args, co = self.args, self.config.optim
-        lr, beta1, eps, w_decay = args.lr, co.beta1, co.eps, co.weight_decay
-        optimizer = optim.Adam(params, lr=lr, betas=(beta1, 0.999), eps=eps, weight_decay=w_decay)
-        log_info(f"  optimizer: {co.optimizer}")
-        log_info(f"  lr       : {lr}")
-        log_info(f"  beta1    : {beta1}")
-        log_info(f"  eps      : {eps}")
-        log_info(f"  w_decay  : {w_decay}")
-        return optimizer
-
     def get_data_loaders(self, train_shuffle=True, test_shuffle=False):
         args, config = self.args, self.config
         batch_size = args.batch_size

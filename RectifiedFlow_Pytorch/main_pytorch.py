@@ -26,10 +26,15 @@ if exe_dir not in env_path:
     print(f"Environment variable PATH has inserted new dir: {exe_dir}")
 
 from RectifiedFlow_Pytorch.configs.rectified_flow import bedroom_rf_gaussian
+from RectifiedFlow_Pytorch.configs.rectified_flow import cifar10_rf_gaussian_reflow_generate_data
+from RectifiedFlow_Pytorch.configs.rectified_flow import cifar10_rf_gaussian_reflow_train
+from RectifiedFlow_Pytorch.configs.rectified_flow import cifar10_rf_gaussian_ddpmpp
 from RectifiedFlow_Pytorch.configs.rectified_flow import church_rf_gaussian
 from RectifiedFlow_Pytorch.rectified_flow_sampling import RectifiedFlowSampling
 from RectifiedFlow_Pytorch.rectified_flow_training import RectifiedFlowTraining
 from RectifiedFlow_Pytorch.rectified_flow_misc import RectifiedFlowMiscellaneous
+from RectifiedFlow_Pytorch.reflow_gen_data import ReflowGenerateData
+from RectifiedFlow_Pytorch.reflow_training import ReflowTraining
 from utils import str2bool, calc_fid
 from utils import log_info as log_info
 
@@ -79,6 +84,12 @@ def parse_args_and_config():
         config.data.dataset = 'LSUN2'
     elif args.config in ['church', 'church_outdoor']:
         config = church_rf_gaussian.get_config()
+    elif args.config == 'cifar10' and 'reflow_gen' in args.todo:
+        config = cifar10_rf_gaussian_reflow_generate_data.get_config()
+    elif args.config == 'cifar10' and 'reflow_train' in args.todo:
+        config = cifar10_rf_gaussian_reflow_train.get_config()
+    elif args.config == 'cifar10':
+        config = cifar10_rf_gaussian_ddpmpp.get_config()
     else:
         raise ValueError(f"Invalid args.config: {args.config}")
 
@@ -115,7 +126,7 @@ def sample_all(args, config):
     log_info(f"  result_file : {result_file}")
     res_arr = []
     for steps in steps_arr:
-        runner = RectifiedFlowSampling(args, config, device=args.device)
+        runner = RectifiedFlowSampling(args, config)
         runner.sample(sample_steps=steps)
         del runner  # delete the GPU memory. And can calculate FID
         torch.cuda.empty_cache()
@@ -150,6 +161,12 @@ def main():
         runner.run_delta_between_prediction_and_ground_truth()
     elif args.todo == 'sample_all':
         sample_all(args, config)
+    elif args.todo == 'reflow_gen':
+        runner = ReflowGenerateData(args, config)
+        runner.gen_data()
+    elif args.todo == 'reflow_train':
+        runner = ReflowTraining(args, config)
+        runner.train()
     else:
         raise Exception(f"Invalid todo: {args.todo}")
 

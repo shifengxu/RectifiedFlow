@@ -65,9 +65,7 @@ class RectifiedFlow():
                                      rtol=rtol, atol=atol, method=method)
       x = torch.tensor(solution.y[:, -1]).reshape(shape).to(device).type(torch.float32)
       nfe = solution.nfev
-      #print('NFE:', nfe) 
-
-      return x
+      return x, nfe
 
     @torch.no_grad()
     def euler_ode(self, init_input, model, reverse=False, N=100):

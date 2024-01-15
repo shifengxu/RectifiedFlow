@@ -16,7 +16,7 @@
 # Lint as: python3
 """Training Rectified Flow on CIFAR-10 with DDPM++."""
 
-from ImageGeneration.configs.default_cifar10_configs import get_default_configs
+from RectifiedFlow_Pytorch.configs.default_cifar10_configs import get_default_configs
 
 
 def get_config():
