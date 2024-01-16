@@ -1,5 +1,6 @@
 import os
 import torchvision.transforms as T
+from torchvision.datasets import CIFAR10
 
 from RectifiedFlow_Pytorch.datasets.ImageDataset import ImageDataset
 from RectifiedFlow_Pytorch.datasets.lsun import LSUN
@@ -40,6 +41,15 @@ def get_train_test_datasets(args, config):
             train_tfm = T.Compose([T.ToTensor()])
         train_dataset = ImageDataset(root_dir, classes=[train_folder], transform=train_tfm)
         test_dataset  = ImageDataset(root_dir, classes=[val_folder], transform=T.Compose([T.ToTensor()]))
+    elif config.data.dataset == "CIFAR10":
+        if config.data.random_flip:
+            train_tfm = T.Compose([T.RandomHorizontalFlip(p=0.5), T.ToTensor()])
+        else:
+            train_tfm = T.Compose([T.ToTensor()])
+        dir1 = os.path.join(args.data_dir, "datasets", "cifar10")
+        dir2 = os.path.join(args.data_dir, "datasets", "cifar10_test")
+        train_dataset = CIFAR10(dir1, train=True, download=True, transform=train_tfm)
+        test_dataset = CIFAR10(dir2, train=False, download=True, transform=None)
     else:
         raise ValueError(f"Unknown config.data.dataset: {config.data.dataset}")
 

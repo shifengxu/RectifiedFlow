@@ -1,12 +1,9 @@
 """
 Rectified Flow Training
 """
-import os.path
 import time
-import psutil
 import torch
 import torch.utils.data as data
-from torch import optim
 
 from RectifiedFlow_Pytorch import utils
 from RectifiedFlow_Pytorch.datasets import get_train_test_datasets
@@ -140,28 +137,28 @@ class RectifiedFlowTraining(RectifiedFlowBase):
         save_int = args.save_ckpt_interval
         self.start_time = time.time()
         self.batch_counter = 0
-        self.batch_total = self.calc_batch_total(train_loader, test_loader, ckpt_epoch)
+        # self.batch_total = self.calc_batch_total(train_loader, test_loader, ckpt_epoch)
+        self.batch_total = e_cnt * b_cnt
         self.model.train()
         log_info(f"RectifiedFlowTraining::train()")
         log_info(f"  train_ds_limit: {self.args.train_ds_limit}")
         log_info(f"  test_ds_limit : {self.args.test_ds_limit}")
         log_info(f"  save_interval : {save_int}")
-        log_info(f"  log_interval: {log_interval}")
-        log_info(f"  image_size  : {config.data.image_size}")
-        log_info(f"  b_sz        : {args.batch_size}")
-        log_info(f"  lr          : {lr}")
-        log_info(f"  loss_dual   : {args.loss_dual}")
-        log_info(f"  loss_lambda : {args.loss_lambda}")
-        log_info(f"  train_b_cnt : {b_cnt}")
-        log_info(f"  test_b_cnt  : {len(test_loader)}")
-        log_info(f"  e_cnt       : {e_cnt}")
-        log_info(f"  ckpt_epoch  : {ckpt_epoch}")
-        log_info(f"  batch_total : {self.batch_total}")
+        log_info(f"  log_interval  : {log_interval}")
+        log_info(f"  image_size    : {config.data.image_size}")
+        log_info(f"  b_sz          : {args.batch_size}")
+        log_info(f"  lr            : {lr}")
+        log_info(f"  loss_dual     : {args.loss_dual}")
+        log_info(f"  loss_lambda   : {args.loss_lambda}")
+        log_info(f"  train_b_cnt   : {b_cnt}")
+        log_info(f"  test_b_cnt    : {len(test_loader)}")
+        log_info(f"  e_cnt         : {e_cnt}")
+        log_info(f"  ckpt_epoch    : {ckpt_epoch}")
+        log_info(f"  batch_total   : {self.batch_total}")
         if self.resume_ckpt_path:
             # if the model is resumed from some ckpt, then calculate EMA avg loss.
             ema_val_ds_avg = self.get_ema_avg_loss(test_loader, self.args.test_ds_limit)
             log_info(f"Ori.ema_test_loss_avg: {ema_val_ds_avg:.6f}")
-        proc = psutil.Process()
         for epoch in range(ckpt_epoch+1, e_cnt+1):
             msg = f"lr={lr:8.7f}; ema_rate={self.ema_rate}"
             log_info(f"Epoch {epoch}/{e_cnt} ---------- {msg}")
@@ -176,21 +173,20 @@ class RectifiedFlowTraining(RectifiedFlowBase):
                 loss_sum += loss
                 loss_cnt += 1
                 if i % log_interval == 0 or i == b_cnt - 1:
-                    rss = proc.memory_info().rss
                     elp, eta = self.get_elp_eta()
                     loss_str = f"loss:{loss:6.4f}"
                     if self.args.loss_dual: loss_str += f", loss_adj:{loss_adj:6.4f}"
                     log_info(f"E{epoch}.B{i:03d}/{b_cnt} {loss_str}; ema:{ema_decay:.4f}. "
-                             f"elp:{elp}, eta:{eta}. rss:{rss:11d}")
+                             f"elp:{elp}, eta:{eta}")
                 counter += x.size(0)
                 if 0 < args.train_ds_limit <= counter:
                     log_info(f"break epoch: counter >= train_ds_limit ({counter} >= {args.train_ds_limit})")
                     break
             # for
             loss_avg = loss_sum / loss_cnt
-            ema_val_ds_avg = self.get_ema_avg_loss(test_loader, self.args.test_ds_limit)
             log_info(f"E{epoch}.training_loss_avg: {loss_avg:.6f}")
-            log_info(f"E{epoch}.ema_test_loss_avg: {ema_val_ds_avg:.6f}")
+            # ema_val_ds_avg = self.get_ema_avg_loss(test_loader, self.args.test_ds_limit)
+            # log_info(f"E{epoch}.ema_test_loss_avg: {ema_val_ds_avg:.6f}")
             if 0 < epoch < e_cnt and save_int > 0 and epoch % save_int == 0:
                 self.save_ckpt(self.model, self.ema, self.optimizer, epoch, self.step, self.step_new, True)
         # for

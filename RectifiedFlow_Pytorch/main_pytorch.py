@@ -151,13 +151,13 @@ def main():
 
     log_info(f"main_pytorch -> {args.todo} ===================================")
     if args.todo == 'sample':
-        runner = RectifiedFlowSampling(args, config, device=args.device)
+        runner = RectifiedFlowSampling(args, config)
         runner.sample(sample_steps=args.sample_steps_arr[0])
     elif args.todo == 'train':
-        runner = RectifiedFlowTraining(args, config, device=args.device)
+        runner = RectifiedFlowTraining(args, config)
         runner.train()
     elif args.todo == 'run_delta':
-        runner = RectifiedFlowMiscellaneous(args, config, device=args.device)
+        runner = RectifiedFlowMiscellaneous(args, config)
         runner.run_delta_between_prediction_and_ground_truth()
     elif args.todo == 'sample_all':
         sample_all(args, config)

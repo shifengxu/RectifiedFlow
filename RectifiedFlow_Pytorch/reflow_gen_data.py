@@ -70,7 +70,7 @@ class ReflowGenerateData(RectifiedFlowBase):
                 z0_arr.append(z0.cpu())
                 z1_arr.append(z1.cpu())
                 elp, eta = utils.get_time_ttl_and_eta(start_time, b_idx, b_cnt)
-                log_info(f"B{b_idx:03d}/{b_cnt}: NFE: {nfe}. elp:{elp}, eta:{eta}")
+                log_info(f"B{b_idx:03d}/{b_cnt}: NFE: {nfe:3d}. elp:{elp}, eta:{eta}")
             # for
         # with
         z0 = torch.cat(z0_arr, dim=0)
