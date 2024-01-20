@@ -26,6 +26,8 @@ if exe_dir not in env_path:
     print(f"Environment variable PATH has inserted new dir: {exe_dir}")
 
 from RectifiedFlow_Pytorch.configs.rectified_flow import bedroom_rf_gaussian
+from RectifiedFlow_Pytorch.configs.rectified_flow import bedroom_rf_gaussian_reflow_gen_data
+from RectifiedFlow_Pytorch.configs.rectified_flow import bedroom_rf_gaussian_reflow_train
 from RectifiedFlow_Pytorch.configs.rectified_flow import cifar10_rf_gaussian_reflow_generate_data
 from RectifiedFlow_Pytorch.configs.rectified_flow import cifar10_rf_gaussian_reflow_train
 from RectifiedFlow_Pytorch.configs.rectified_flow import cifar10_rf_gaussian_ddpmpp
@@ -77,7 +79,11 @@ def parse_args_and_config():
     parser.add_argument("--fid_input1", type=str, default="../ddim/exp/datasets/lsun/bedroom_train")
 
     args = parser.parse_args()
-    if args.config == 'bedroom':
+    if args.config == 'bedroom' and 'reflow_gen' in args.todo:
+        config = bedroom_rf_gaussian_reflow_gen_data.get_config()
+    elif args.config == 'bedroom' and 'reflow_train' in args.todo:
+        config = bedroom_rf_gaussian_reflow_train.get_config()
+    elif args.config == 'bedroom':
         config = bedroom_rf_gaussian.get_config()
     elif args.config == 'bedroom2':
         config = bedroom_rf_gaussian.get_config()

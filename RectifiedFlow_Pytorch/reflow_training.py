@@ -1,9 +1,12 @@
 import os
 import time
-
-import numpy as np
 import torch
+import torchvision.transforms as T
+from torch.utils import data as tu_data
 
+from RectifiedFlow_Pytorch.datasets import data_scaler
+from RectifiedFlow_Pytorch.datasets.ImageNoiseDataset import ImageNoiseDataset
+from RectifiedFlow_Pytorch.datasets.ImageNoiseNumpyDataset import ImageNoiseNumpyDataset
 from RectifiedFlow_Pytorch.rectified_flow_base import RectifiedFlowBase
 from utils import log_info, get_time_ttl_and_eta
 
@@ -24,88 +27,76 @@ class ReflowTraining(RectifiedFlowBase):
         self.optimizer = None
         self.step = 0
         self.step_new = 0
+        self.dataset = None
 
-    def get_data_pair(self):
-        seed_dir = os.path.join(self.data_dir, str(self.seed))
-        if not os.path.exists(seed_dir):
-            raise ValueError(f"Dir not exist: {seed_dir}")
-        # load data
-        file_list = os.listdir(seed_dir)
-        file_list.sort()
-        log_info(f"  seed_dir   : {seed_dir}")
-        log_info(f"  file cnt   : {len(file_list)}")
-        z0_arr, z1_arr = [], []
-        for f in file_list:
-            f = str(f)
-            if f.endswith("z0.npy"):
-                z0 = np.load(os.path.join(seed_dir, f))
-                z0 = torch.from_numpy(z0).cpu()
-                z0_arr.append(z0)
-            elif f.endswith("z1.npy"):
-                z1 = np.load(os.path.join(seed_dir, f))
-                z1 = torch.from_numpy(z1).cpu()
-                z1_arr.append(z1)
-            else:
-                log_info(f" Warn: Unknown file: {f}")
-        # for
-        log_info(f"  z0 file cnt: {len(z0_arr)}")
-        log_info(f"  z1 file cnt: {len(z1_arr)}")
-        z0_ds = torch.cat(z0_arr, dim=0)    # z0 dataset
-        z1_ds = torch.cat(z1_arr, dim=0)
-        log_info(f"  z0 data cnt: {len(z0_ds)}")
-        log_info(f"  z1 data cnt: {len(z1_ds)}")
-        return z0_ds, z1_ds
+    def get_data_loader(self):
+        args = self.args
+        if args.config == 'cifar10':
+            seed_dir = os.path.join(self.data_dir, str(self.seed))
+            ds = ImageNoiseNumpyDataset(seed_dir)
+        else:
+            image_dir = os.path.join(self.data_dir, f"{args.seed}_image")
+            noise_dir = os.path.join(self.data_dir, f"{args.seed}_noise")
+            tfm = T.Compose([T.ToTensor()])
+            ds = ImageNoiseDataset(image_dir, noise_dir, image_transform=tfm)
+        self.dataset = ds
+        dl = tu_data.DataLoader(ds, batch_size=args.batch_size, shuffle=True, num_workers=4)
+        return dl
 
     def train(self):
+        data_loader = self.get_data_loader()
         log_info(f"ReflowTraining::train()")
-        z0_ds, z1_ds = self.get_data_pair()
+        ds_name = type(self.dataset).__name__
+        scalar_flag = ds_name == 'ImageNoiseDataset'    # data scalar or not
         states = self.load_ckpt(self.resume_ckpt_path, eval_mode=False, only_return_model=False)
         self.model     = states['model']
         self.ema       = states['ema']
         self.optimizer = states['optimizer']
         self.step      = states['step']
-        args = self.args
+        args, config = self.args, self.config
         b_sz = args.batch_size
         e_cnt = args.n_epochs
         log_itv = args.log_interval
-        img_cnt, c, h, w = z0_ds.shape
-        b_cnt = img_cnt // b_sz
-        if b_cnt * b_sz < img_cnt:
-            b_cnt += 1
+        b_cnt = len(data_loader)
         eb_cnt = e_cnt * b_cnt
         ds_limit = args.train_ds_limit
         lr = args.lr
         log_info(f"  loss_dual  : {args.loss_dual}")
         log_info(f"  loss_lambda: {args.loss_lambda}")
         log_info(f"  ds_limit   : {ds_limit}")
+        log_info(f"  ds_name    : {ds_name}")
+        log_info(f"  scalar_flag: {scalar_flag}")
         log_info(f"  lr     : {lr}")
-        log_info(f"  img_cnt: {img_cnt}")
-        log_info(f"  channel: {c}")
-        log_info(f"  height : {h}")
-        log_info(f"  width  : {w}")
+        log_info(f"  img_cnt: {len(self.dataset)}")
         log_info(f"  log_itv: {log_itv}")
         log_info(f"  b_sz   : {b_sz}")
         log_info(f"  b_cnt  : {b_cnt}")
         log_info(f"  e_cnt  : {e_cnt}")
         log_info(f"  eb_cnt : {eb_cnt}")
+        chw_flag = False
         start_time = time.time()
+        b_ter = 0 # batch counter
         for epoch in range(1, e_cnt+1):
             log_info(f"Epoch {epoch}/{e_cnt} ----------------lr:{lr}")
-            indices = torch.randperm(img_cnt)
-            counter = 0
-            for b_idx in range(b_cnt):
-                s = b_idx * b_sz    # start & end index of indices
-                e = (b_idx + 1) * b_sz if b_idx + 1 < b_cnt else b_cnt
-                idx = indices[s:e]  # index of data or noise
-                data = z1_ds[idx].to(self.device).float()
-                z0   = z0_ds[idx].to(self.device).float()
-                counter += len(z0)
+            d_counter = 0 # data counter
+            for b_idx, (data, z0) in enumerate(data_loader):
+                b_ter += 1
+                d_counter += len(z0)
+                data, z0 = data.to(self.device), z0.to(self.device)
+                if scalar_flag:
+                    data = data_scaler(config, data)
+                if not chw_flag:
+                    chw_flag = True
+                    n, c, h, w = data.shape
+                    log_info(f"  channel: {c}")
+                    log_info(f"  height : {h}")
+                    log_info(f"  width  : {w}")
                 loss, loss_adj, decay = self.train_batch(z0, data)
                 if log_itv > 0 and b_idx % log_itv == 0:
-                    elp, eta = get_time_ttl_and_eta(start_time, epoch * b_cnt + b_idx, eb_cnt)
+                    elp, eta = get_time_ttl_and_eta(start_time, b_ter, eb_cnt)
                     log_info(f"B{b_idx:03d}/{b_cnt} loss:{loss:6.4f}, adj:{loss_adj:6.4f}. elp:{elp}, eta:{eta}")
-                if 0 < ds_limit <= counter:
-                    log_info(f"break data iteration as counter({counter}) reaches {ds_limit}")
+                if 0 < ds_limit <= d_counter:
+                    log_info(f"break data iteration as counter({d_counter}) reaches {ds_limit}")
                     break
             # for
         # for
