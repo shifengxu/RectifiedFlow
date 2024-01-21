@@ -5,6 +5,8 @@ import os
 import time
 import torch
 import torchvision.utils as tvu
+from torch import Tensor
+
 from RectifiedFlow_Pytorch import utils
 from RectifiedFlow_Pytorch.rectified_flow_base import RectifiedFlowBase
 from datasets import data_inverse_scaler
@@ -15,9 +17,11 @@ class RectifiedFlowSampling(RectifiedFlowBase):
     def __init__(self, args, config):
         super().__init__(args, config)
 
-    def sample(self, sample_steps=10):
+    def sample(self, sample_steps=10, init_ts=0.):
         args, config = self.args, self.config
-        log_info(f"RectifiedFlowSampling::sample(sample_steps={sample_steps})")
+        log_info(f"RectifiedFlowSampling::sample()")
+        log_info(f"  sample_steps: {sample_steps}")
+        log_info(f"  init_ts     : {init_ts}")
         model = self.load_ckpt(args.sample_ckpt_path, eval_mode=True, only_return_model=True)
         img_cnt = args.sample_count
         b_sz = args.sample_batch_size
@@ -38,13 +42,13 @@ class RectifiedFlowSampling(RectifiedFlowBase):
             for b_idx in range(b_cnt):
                 n = img_cnt - b_idx * b_sz if b_idx == b_cnt - 1 else b_sz
                 x1 = torch.randn(n, c, h, w, requires_grad=False, device=self.device)
-                x0 = self.sample_batch(x1, model, sample_steps, b_idx=b_idx)
+                x0 = self.sample_batch(x1, model, sample_steps, init_ts, b_idx=b_idx)
                 self.save_images(x0, time_start, b_cnt, b_idx, b_sz)
             # for
         # with
         return 0
 
-    def sample_batch(self, x1, model, sample_steps, eps=1e-3, b_idx=-1):
+    def sample_batch(self, x1: Tensor, model, sample_steps, init_ts, eps=1e-3, b_idx=-1):
         """
         sample a batch, starting from x1.
         From losses.py, where z0 is Gaussian noise:
@@ -61,6 +65,7 @@ class RectifiedFlowSampling(RectifiedFlowBase):
         x = x1
         for i in range(sample_steps):
             num_t = i / sample_steps * (1.0 - eps) + eps
+            num_t = init_ts + (1 - init_ts) * num_t
             if b_idx == 0:
                 log_info(f"sample_batch() i:{i:2d}, num_t:{num_t:.6f}")
             t = torch.ones(b_sz, requires_grad=False, device=self.device) * num_t

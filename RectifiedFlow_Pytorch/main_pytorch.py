@@ -124,30 +124,35 @@ def parse_args_and_config():
 
 def sample_all(args, config):
     steps_arr = args.sample_steps_arr
+    init_ts_arr = args.sample_init_ts_arr
     basename = os.path.basename(args.sample_ckpt_path)
     stem, ext = os.path.splitext(basename)
     result_file = f"./sample_all_rf_{stem}.txt"
     log_info(f"main_pytorch->sample_all()")
+    log_info(f"  init_ts_arr : {init_ts_arr}")
     log_info(f"  steps_arr   : {steps_arr}")
     log_info(f"  result_file : {result_file}")
-    res_arr = []
-    for steps in steps_arr:
-        runner = RectifiedFlowSampling(args, config)
-        runner.sample(sample_steps=steps)
-        del runner  # delete the GPU memory. And can calculate FID
-        torch.cuda.empty_cache()
-        log_info(f"sleep 5 seconds to empty the GPU cache. . .")
-        time.sleep(5)
-        fid = calc_fid(args.gpu_ids[0], True, input1=args.fid_input1)
-        msg = f"FID: {fid:7.3f}. steps:{steps:2d}"
-        res_arr.append(msg)
-        with open(result_file, 'w') as fptr: [fptr.write(f"{m}\n") for m in res_arr]
-        log_info(msg)
-        log_info("")
-        log_info("")
-        log_info("")
+    for init_ts in init_ts_arr:
+        result_file = f"./sample_all_rf_{stem}_initTS{init_ts:.3f}.txt"
+        res_arr = []
+        for steps in steps_arr:
+            runner = RectifiedFlowSampling(args, config)
+            runner.sample(sample_steps=steps, init_ts=init_ts)
+            del runner  # delete the GPU memory. And can calculate FID
+            torch.cuda.empty_cache()
+            log_info(f"sleep 5 seconds to empty the GPU cache. . .")
+            time.sleep(5)
+            fid = calc_fid(args.gpu_ids[0], True, input1=args.fid_input1)
+            msg = f"FID: {fid:7.3f}. steps:{steps:2d}"
+            res_arr.append(msg)
+            with open(result_file, 'w') as fptr: [fptr.write(f"{m}\n") for m in res_arr]
+            log_info(msg)
+            log_info("")
+            log_info("")
+            log_info("")
+        # for
+        [log_info(f"{msg}") for msg in res_arr]
     # for
-    [log_info(f"{msg}") for msg in res_arr]
 
 def main():
     args, config = parse_args_and_config()
