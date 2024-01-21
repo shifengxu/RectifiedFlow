@@ -4,10 +4,13 @@ Rectified Flow sampling
 import os.path
 import time
 import torch
-import torch.utils.data as data
+import torch.utils.data as tu_data
+import torchvision.transforms as T
 
 from RectifiedFlow_Pytorch import utils
 from RectifiedFlow_Pytorch.datasets import get_train_test_datasets, data_scaler
+from RectifiedFlow_Pytorch.datasets.ImageNoiseDataset import ImageNoiseDataset
+from RectifiedFlow_Pytorch.datasets.ImageNoiseNumpyDataset import ImageNoiseNumpyDataset
 from RectifiedFlow_Pytorch.rectified_flow_base import RectifiedFlowBase
 from utils import log_info as log_info
 
@@ -25,7 +28,7 @@ class RectifiedFlowMiscellaneous(RectifiedFlowBase):
         batch_size = args.batch_size
         num_workers = 4
         train_ds, test_ds = get_train_test_datasets(args, config)
-        train_loader = data.DataLoader(
+        train_loader = tu_data.DataLoader(
             train_ds,
             batch_size=batch_size,
             shuffle=train_shuffle,
@@ -41,7 +44,7 @@ class RectifiedFlowMiscellaneous(RectifiedFlowBase):
         log_info(f"  shuffle    : {train_shuffle}")
         log_info(f"  num_workers: {num_workers}")
 
-        test_loader = data.DataLoader(
+        test_loader = tu_data.DataLoader(
             test_ds,
             batch_size=batch_size,
             shuffle=test_shuffle,
@@ -160,5 +163,45 @@ class RectifiedFlowMiscellaneous(RectifiedFlowBase):
                 torch.cuda.empty_cache()
             # for ts
         # with
+
+    # compare distance between noise and image
+    def compare_distance(self):
+        args = self.args
+        data_dir = args.data_dir
+        seed = 123
+        batch_size = args.batch_size
+        if args.config == 'cifar10':
+            seed_dir = os.path.join(data_dir, str(seed))
+            ds = ImageNoiseNumpyDataset(seed_dir)
+        else:
+            image_dir = os.path.join(data_dir, f"{seed}_image")
+            noise_dir = os.path.join(data_dir, f"{seed}_noise")
+            tfm = T.Compose([T.ToTensor()])
+            ds = ImageNoiseDataset(image_dir, noise_dir, image_transform=tfm)
+        d_loader = tu_data.DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=4)
+        b_cnt = len(d_loader)
+        log_info(f"config    : {args.config}")
+        log_info(f"data_dir  : {data_dir}")
+        log_info(f"batch_size: {batch_size}")
+        log_info(f"batch_cnt : {b_cnt}")
+        log_info(f"device    : {self.device}")
+        match_cnt, total_cnt = 0, 0
+        for b_idx, (image_batch, noise_batch) in enumerate(d_loader):
+            image_batch, noise_batch = image_batch.to(self.device), noise_batch.to(self.device)
+            image_batch = image_batch * 2 - 1
+            min_pair_dist = (image_batch - noise_batch).square().mean(dim=(1, 2, 3))
+            for i_idx, image in enumerate(image_batch):
+                image = image.unsqueeze(0)
+                dist_arr = (image - noise_batch).square().mean(dim=(1, 2, 3))
+                result = torch.min(dist_arr, dim=0, keepdim=False)
+                min_dist, min_idx = result.values, result.indices
+                total_cnt += 1
+                if min_idx == i_idx:
+                    match_cnt += 1
+                else:
+                    log_info(f"{i_idx:3d}|{min_idx:3d}: {min_pair_dist[i_idx]:.4f} vs {min_dist:.4f}")
+            # for
+            log_info(f"B{b_idx:3d}/{b_cnt}: match/total: {match_cnt}/{total_cnt} ----------")
+        # for
 
     # class

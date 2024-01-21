@@ -165,6 +165,9 @@ def main():
     elif args.todo == 'run_delta':
         runner = RectifiedFlowMiscellaneous(args, config)
         runner.run_delta_between_prediction_and_ground_truth()
+    elif args.todo == 'compare_distance':
+        runner = RectifiedFlowMiscellaneous(args, config)
+        runner.compare_distance()
     elif args.todo == 'sample_all':
         sample_all(args, config)
     elif args.todo == 'reflow_gen':
