@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+import torch
 import torchvision as tv
 from utils import log_info
 
@@ -67,12 +68,12 @@ def fid_train_from_scratch_celeba():
     fid_s6  = [31.18, 26.43, 24.93, 23.29, 23.09, 23.41, 24.16, 25.02, 26.31, 27.58, 28.90]
     fid_s8  = [21.43, 18.79, 18.06, 17.07, 17.31, 17.81, 18.93, 20.01, 21.24, 22.72, 24.47]
     fid_s10 = [16.84, 14.74, 14.49, 14.09, 14.67, 15.12, 16.39, 17.51, 18.81, 20.69, 22.29]
-    lambda_arr = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    lambda_arr = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
     fig = plt.figure(figsize=(16, 8))
     ax1 = fig.add_subplot(1, 2, 1)
     ax2 = fig.add_subplot(1, 2, 2)
-    ax1.tick_params('both', labelsize=20)
-    ax2.tick_params('both', labelsize=20)
+    ax1.tick_params('both', labelsize=22)
+    ax2.tick_params('both', labelsize=22)
     ax1.plot(lambda_arr, fid_s2, linestyle='-', color='r', marker='o')
     ax1.plot(lambda_arr, fid_s3, linestyle='-', color='g', marker='s')
     ax1.plot(lambda_arr, fid_s4, linestyle='-', color='b', marker='d')
@@ -87,7 +88,7 @@ def fid_train_from_scratch_celeba():
     fig.supxlabel('value of $\\lambda$', fontsize=25)
     fig.suptitle("FID Comparison on CelebA by Different Sampling Steps", fontsize=30)
     # plt.show()
-    f_path = './RectifiedFlow_Pytorch/configs/charts/fig_fid_train_from_scratch_celeba.png'
+    f_path = './RectifiedFlow_Pytorch/charts/fig_fid_train_from_scratch_celeba.png'
     fig.savefig(f_path, bbox_inches='tight')
     print(f"file saved: {f_path}")
     plt.close()
@@ -128,11 +129,78 @@ def merge_image_col_row():
         fptr.write(f"col lambda: {line}\n")
     # with
 
+def gen_img_of_step_count():
+    root_dir = "./RectifiedFlow_Pytorch/charts/"
+    step_arr = [1, 2, 3, 4, 5]
+    for step in step_arr:
+        fig = plt.figure(figsize=(2, 2))
+        ax = fig.add_subplot(1, 1, 1)
+        ax.get_xaxis().set_visible(False)       # hide ticks
+        ax.get_yaxis().set_visible(False)
+        ax.spines['top'].set_visible(False)     # hide lines
+        ax.spines['right'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
+        ax.spines['left'].set_visible(False)
+        text_kwargs = dict(ha='center', va='center', fontsize=40, color='k')
+        plt.text(0.5, 0.5, f"$k={step}$", text_kwargs)
+
+        f_path = os.path.join(root_dir, f"fig_step_count_{step}.png")
+        fig.savefig(f_path, bbox_inches='tight')
+        print(f"saved: {f_path}")
+        plt.close()
+    # for
+
+def gen_img_of_vertical_text():
+    root_dir = "./RectifiedFlow_Pytorch/charts/"
+    step_arr = [1, 2]
+    for s in step_arr:
+        fig = plt.figure(figsize=(1.1, 6))
+        ax = fig.add_subplot(1, 1, 1)
+        ax.get_xaxis().set_visible(False)       # hide ticks
+        ax.get_yaxis().set_visible(False)
+        ax.spines['top'].set_visible(False)     # hide lines
+        ax.spines['right'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
+        ax.spines['left'].set_visible(False)
+        text_kwargs = dict(ha='center', va='center', fontsize=40, color='k', rotation=90)
+        plt.text(0.5, 0.5, f"{s}-Rectified Flow", text_kwargs)
+
+        f_path = os.path.join(root_dir, f"fig_lbl_{s}_rectified_flow.png")
+        fig.savefig(f_path, bbox_inches='tight')
+        print(f"saved: {f_path}")
+        plt.close()
+    # for
+
+def change_background_local():
+    # step_arr = ['01', '02', '03']
+    # lambda_arr = ["0.5"]
+    scale = 0.90  # for lambda 0.1, 0.3, scale = 0.8
+    old_dir = "D:/Coding2/RectifiedFlow/checkpoint/image-compare/bedroom_1RF_2RF"
+    new_dir = "D:/Coding2/RectifiedFlow/checkpoint/image-compare/bedroom_1RF_2RF"
+    file_id_arr = ["00030", "00059", "00084"]
+    for fi in file_id_arr:
+        old_image_path = f"{old_dir}/{fi}_1RF_lambdaFalse_step3_old.png"
+        new_image_path = f"{new_dir}/{fi}_1RF_lambdaFalse_step3.png"
+        img = plt.imread(old_image_path)  # dimension: [64, 64, 3]
+        img = torch.tensor(img)
+        img = img.permute(2, 0, 1)
+        img[1, :] *= scale  # green
+        # img[0, :] /= scale  # red
+        # img[2, :] /= scale  # blue
+        # img[:] *= 1.6
+        torch.clamp(img, 0., 1., out=img)
+        tv.utils.save_image(img, new_image_path)
+        print(new_image_path)
+    # for
+
 def main():
     """ entry point """
     # run_delta_plot_distribution()
     # fid_train_from_scratch_celeba()
-    merge_image_col_row()
+    # merge_image_col_row()
+    # gen_img_of_step_count()
+    change_background_local()
+    # gen_img_of_vertical_text()
 
 if __name__ == '__main__':
     main()
