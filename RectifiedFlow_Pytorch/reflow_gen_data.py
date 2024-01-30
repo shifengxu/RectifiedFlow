@@ -51,6 +51,7 @@ class ReflowGenerateData(RectifiedFlowBase):
         log_info(f"  c      : {c}")
         log_info(f"  h      : {h}")
         log_info(f"  w      : {w}")
+        log_info(f"  steps  : {args.sample_steps_arr}")
 
         def save_at_final():
             """ Save data at final. This is for small image, such as 32*32 size """

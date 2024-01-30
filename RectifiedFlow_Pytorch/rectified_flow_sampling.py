@@ -17,8 +17,9 @@ class RectifiedFlowSampling(RectifiedFlowBase):
     def __init__(self, args, config):
         super().__init__(args, config)
 
-    def sample(self, sample_steps=10, init_ts=0.):
+    def sample(self, sample_steps=10, init_ts=None):
         args, config = self.args, self.config
+        if init_ts is None: init_ts = args.sample_init_ts_arr[0]
         log_info(f"RectifiedFlowSampling::sample()")
         log_info(f"  sample_steps: {sample_steps}")
         log_info(f"  init_ts     : {init_ts}")
@@ -48,7 +49,7 @@ class RectifiedFlowSampling(RectifiedFlowBase):
         # with
         return 0
 
-    def sample_batch(self, x1: Tensor, model, sample_steps, init_ts, eps=1e-3, b_idx=-1):
+    def sample_batch(self, x1: Tensor, model, sample_steps, init_ts=0., eps=1e-3, b_idx=-1):
         """
         sample a batch, starting from x1.
         From losses.py, where z0 is Gaussian noise:

@@ -79,6 +79,7 @@ class ReflowTraining(RectifiedFlowBase):
         for epoch in range(1, e_cnt+1):
             log_info(f"Epoch {epoch}/{e_cnt} ----------------lr:{lr}")
             d_counter = 0 # data counter
+            loss_sum, loss_adj_sum, loss_cnt = 0.0, 0.0, 0
             for b_idx, (data, z0) in enumerate(data_loader):
                 b_ter += 1
                 d_counter += len(z0)
@@ -92,6 +93,9 @@ class ReflowTraining(RectifiedFlowBase):
                     log_info(f"  height : {h}")
                     log_info(f"  width  : {w}")
                 loss, loss_adj, decay = self.train_batch(z0, data)
+                loss_sum += loss
+                loss_adj_sum += loss_adj
+                loss_cnt += 1
                 if log_itv > 0 and b_idx % log_itv == 0:
                     elp, eta = get_time_ttl_and_eta(start_time, b_ter, eb_cnt)
                     log_info(f"B{b_idx:03d}/{b_cnt} loss:{loss:6.4f}, adj:{loss_adj:6.4f}. elp:{elp}, eta:{eta}")
@@ -99,6 +103,8 @@ class ReflowTraining(RectifiedFlowBase):
                     log_info(f"break data iteration as counter({d_counter}) reaches {ds_limit}")
                     break
             # for
+            loss_avg, loss_adj_avg = loss_sum / loss_cnt, loss_adj_sum / loss_cnt
+            log_info(f"Epoch {epoch}/{e_cnt} loss_avg:{loss_avg:6.4f}, loss_adj_avg:{loss_adj_avg:6.4f}.")
         # for
         self.save_ckpt(self.model, self.ema, self.optimizer, e_cnt, self.step, self.step_new, False)
 
