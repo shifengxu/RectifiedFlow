@@ -192,16 +192,18 @@ class RectifiedFlowMiscellaneous(RectifiedFlowBase):
             min_pair_dist = (image_batch - noise_batch).square().mean(dim=(1, 2, 3))
             for i_idx, image in enumerate(image_batch):
                 image = image.unsqueeze(0)
-                dist_arr = (image - noise_batch).square().mean(dim=(1, 2, 3))
+                rdm_noise = torch.randn_like(noise_batch)
+                dist_arr = (image - rdm_noise).square().mean(dim=(1, 2, 3))
                 result = torch.min(dist_arr, dim=0, keepdim=False)
                 min_dist, min_idx = result.values, result.indices
                 total_cnt += 1
-                if min_idx == i_idx:
+                if min_pair_dist[i_idx] < min_dist: # if paired data distance less-than rdm_noise
                     match_cnt += 1
                 else:
-                    log_info(f"{i_idx:3d}|{min_idx:3d}: {min_pair_dist[i_idx]:.4f} vs {min_dist:.4f}")
+                    log_info(f"{i_idx:4d}|{min_idx:4d}: {min_pair_dist[i_idx]:.4f} vs {min_dist:.4f}")
             # for
-            log_info(f"B{b_idx:3d}/{b_cnt}: match/total: {match_cnt}/{total_cnt} ----------")
+            rate = float(match_cnt) / total_cnt
+            log_info(f"B{b_idx:3d}/{b_cnt}: match/total: {match_cnt}/{total_cnt} rate: {rate:.4f}----------")
         # for
 
     # class
