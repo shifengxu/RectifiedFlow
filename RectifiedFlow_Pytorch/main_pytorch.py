@@ -158,6 +158,7 @@ def main():
     args, config = parse_args_and_config()
     log_info(f"pid : {os.getpid()}")
     log_info(f"cwd : {os.getcwd()}")
+    log_info(f"host: {os.uname().nodename}")
     log_info(f"args: {args}")
 
     log_info(f"main_pytorch -> {args.todo} ===================================")
