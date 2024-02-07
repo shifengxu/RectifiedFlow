@@ -6,12 +6,14 @@ import time
 import torch
 import torch.utils.data as tu_data
 import torchvision.transforms as T
+import torchvision.utils
 
 from RectifiedFlow_Pytorch import utils
 from RectifiedFlow_Pytorch.datasets import get_train_test_datasets, data_scaler
 from RectifiedFlow_Pytorch.datasets.ImageNoiseDataset import ImageNoiseDataset
 from RectifiedFlow_Pytorch.datasets.ImageNoiseNumpyDataset import ImageNoiseNumpyDataset
 from RectifiedFlow_Pytorch.rectified_flow_base import RectifiedFlowBase
+from RectifiedFlow_Pytorch.rectified_flow_sampling import RectifiedFlowSampling
 from utils import log_info as log_info
 
 class RectifiedFlowMiscellaneous(RectifiedFlowBase):
@@ -178,6 +180,11 @@ class RectifiedFlowMiscellaneous(RectifiedFlowBase):
             noise_dir = os.path.join(data_dir, f"{seed}_noise")
             tfm = T.Compose([T.ToTensor()])
             ds = ImageNoiseDataset(image_dir, noise_dir, image_transform=tfm)
+
+        model = self.load_ckpt(args.sample_ckpt_path, eval_mode=True, only_return_model=True)
+        sampler = RectifiedFlowSampling(args, self.config)
+        compare_img_dir = args.sample_output_dir
+
         d_loader = tu_data.DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=4)
         b_cnt = len(d_loader)
         log_info(f"config    : {args.config}")
@@ -190,6 +197,7 @@ class RectifiedFlowMiscellaneous(RectifiedFlowBase):
             image_batch, noise_batch = image_batch.to(self.device), noise_batch.to(self.device)
             image_batch = image_batch * 2 - 1
             min_pair_dist = (image_batch - noise_batch).square().mean(dim=(1, 2, 3))
+            mmb_count = 0 # mis-match in batch
             for i_idx, image in enumerate(image_batch):
                 image = image.unsqueeze(0)
                 rdm_noise = torch.randn_like(noise_batch)
@@ -200,7 +208,21 @@ class RectifiedFlowMiscellaneous(RectifiedFlowBase):
                 if min_pair_dist[i_idx] < min_dist: # if paired data distance less-than rdm_noise
                     match_cnt += 1
                 else:
-                    log_info(f"{i_idx:4d}|{min_idx:4d}: {min_pair_dist[i_idx]:.4f} vs {min_dist:.4f}")
+                    mmb_count += 1
+                    if mmb_count <= 10: # don't flood the log. only print part of mis-matched data.
+                        log_info(f"{i_idx:4d}|{min_idx:4d}: {min_pair_dist[i_idx]:.4f} vs {min_dist:.4f}")
+                    # found nearer noise. Then sample from that noise, and save the image for comparison.
+                    noise = rdm_noise[min_idx]
+                    noise = noise.unsqueeze(0)
+                    img_2 = sampler.sample_batch(noise, model, 20)
+                    image, img_2 = image.squeeze(0), img_2.squeeze(0)
+                    image, img_2 = (image + 1) / 2, (img_2 + 1) / 2
+                    image, img_2 = torch.clamp(image, 0., 1.), torch.clamp(img_2, 0., 1.)
+                    img_id = b_idx * batch_size + i_idx
+                    f_path1 = os.path.join(compare_img_dir, f"{img_id:05d}.png")
+                    torchvision.utils.save_image(image, f_path1)
+                    f_path2 = os.path.join(compare_img_dir, f"{img_id:05d}_nearer.png")
+                    torchvision.utils.save_image(img_2, f_path2)
             # for
             rate = float(match_cnt) / total_cnt
             log_info(f"B{b_idx:3d}/{b_cnt}: match/total: {match_cnt}/{total_cnt} rate: {rate:.4f}----------")
