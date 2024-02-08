@@ -174,6 +174,9 @@ def main():
     elif args.todo == 'compare_distance':
         runner = RectifiedFlowMiscellaneous(args, config)
         runner.compare_distance()
+    elif args.todo == 'calc_gradient_var':
+        runner = RectifiedFlowMiscellaneous(args, config)
+        runner.calc_gradient_var()
     elif args.todo == 'sample_all':
         sample_all(args, config)
     elif args.todo == 'reflow_gen':

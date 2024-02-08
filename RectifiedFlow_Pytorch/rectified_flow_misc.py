@@ -7,6 +7,7 @@ import torch
 import torch.utils.data as tu_data
 import torchvision.transforms as T
 import torchvision.utils
+from torch import Tensor
 
 from RectifiedFlow_Pytorch import utils
 from RectifiedFlow_Pytorch.datasets import get_train_test_datasets, data_scaler
@@ -227,5 +228,73 @@ class RectifiedFlowMiscellaneous(RectifiedFlowBase):
             rate = float(match_cnt) / total_cnt
             log_info(f"B{b_idx:3d}/{b_cnt}: match/total: {match_cnt}/{total_cnt} rate: {rate:.4f}----------")
         # for
+
+    def calc_gradient_var(self):
+        """ calculate the variance of the gradients on different timesteps """
+        args, config = self.args, self.config
+        log_info(f"RectifiedFlowMiscellaneous::calc_gradient_consistency()")
+        sample_steps = args.sample_steps_arr[0]
+        model = self.load_ckpt(args.sample_ckpt_path, eval_mode=True, only_return_model=True)
+        img_cnt = args.sample_count
+        b_sz = args.sample_batch_size
+        b_cnt = img_cnt // b_sz
+        if b_cnt * b_sz < img_cnt:
+            b_cnt += 1
+        c_data = config.data
+        c, h, w = c_data.num_channels, c_data.image_size, c_data.image_size
+        log_info(f"  img_cnt: {img_cnt}")
+        log_info(f"  b_sz   : {b_sz}")
+        log_info(f"  b_cnt  : {b_cnt}")
+        log_info(f"  c      : {c}")
+        log_info(f"  h      : {h}")
+        log_info(f"  w      : {w}")
+        log_info(f"  steps  : {sample_steps}")
+        var_arr = []
+        time_start = time.time()
+        with torch.no_grad():
+            for b_idx in range(b_cnt):
+                n = img_cnt - b_idx * b_sz if b_idx == b_cnt - 1 else b_sz
+                z0 = torch.randn(n, c, h, w, requires_grad=False, device=self.device)
+                grad_arr = self._calc_gradient_var_batch(z0, model, sample_steps, b_idx=b_idx)
+                grad_arr_t = torch.stack(grad_arr, dim=0)
+                var_b_chw = torch.var(grad_arr_t, dim=0)
+                var_b = var_b_chw.mean(dim=(1, 2, 3))
+                if b_idx == 0:
+                    log_info(f"grad_arr_t: {grad_arr_t.shape}")
+                    log_info(f"var_b_chw : {var_b_chw.shape}")
+                    log_info(f"var_b     : {var_b.shape}")
+                var_arr.append(var_b)
+                elp, eta = utils.get_time_ttl_and_eta(time_start, b_idx + 1, b_cnt)
+                log_info(f"B:{b_idx:3d}/{b_cnt}. elp:{elp}, eta:{eta}")
+            # for
+        # with
+        var_arr = torch.concat(var_arr, dim=0)
+        var_mean = torch.mean(var_arr)
+        var_cnt = len(var_arr)
+        basename = os.path.basename(args.sample_ckpt_path)
+        stem, ext = os.path.splitext(basename)
+        f_path = f"./var_{stem}_img{var_cnt}_step{sample_steps}.txt"
+        with open(f_path, 'w') as fptr:
+            fptr.write(f"# var_cnt : {var_cnt}\n")
+            fptr.write(f"# step_cnt: {sample_steps}\n")
+            fptr.write(f"# var_mean: {var_mean:.8f}\n")
+            [fptr.write(f"{v:.8f}\n") for v in var_arr]
+        # with
+
+    def _calc_gradient_var_batch(self, z0: Tensor, model, sample_steps, eps=1e-3, b_idx=-1):
+        b_sz = z0.size(0)
+        dt = 1. / sample_steps
+        x = z0
+        grad_arr = []
+        for i in range(sample_steps):
+            num_t = i / sample_steps * (1.0 - eps) + eps
+            if b_idx == 0:
+                log_info(f"sample_batch() i:{i:2d}, num_t:{num_t:.6f}")
+            t = torch.ones(b_sz, requires_grad=False, device=self.device) * num_t
+            grad = model(x, t * 999)
+            grad_arr.append(grad)
+            x = x + grad * dt
+            if i >= 9: break    # delete_it. for test only
+        return grad_arr
 
     # class

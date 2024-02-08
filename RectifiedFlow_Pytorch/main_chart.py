@@ -67,14 +67,18 @@ def fid_train_from_scratch_celeba():
     fid_s4  = [55.02, 47.01, 43.36, 40.06, 38.79, 38.92, 39.04, 39.06, 40.35, 40.92, 42.19]
     fid_s5  = [40.46, 34.25, 31.63, 29.40, 28.79, 29.04, 29.61, 29.86, 31.20, 32.17, 33.54]
     fid_s6  = [31.18, 26.43, 24.93, 23.29, 23.09, 23.41, 24.16, 25.02, 26.31, 27.58, 28.90]
+    fid_s7  = [25.48, 21.90, 20.98, 19.56, 19.63, 20.03, 20.91, 22.04, 23.17, 24.60, 26.07]
     fid_s8  = [21.43, 18.79, 18.06, 17.07, 17.31, 17.81, 18.93, 20.01, 21.24, 22.72, 24.47]
+    fid_s9  = [18.81, 16.25, 16.16, 15.23, 15.85, 16.36, 17.56, 18.52, 19.99, 21.77, 23.22]
     fid_s10 = [16.84, 14.74, 14.49, 14.09, 14.67, 15.12, 16.39, 17.51, 18.81, 20.69, 22.29]
     lambda_arr = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
-    fig = plt.figure(figsize=(16, 8))
+    fig = plt.figure(figsize=(12, 8))
     ax1 = fig.add_subplot(1, 2, 1)
     ax2 = fig.add_subplot(1, 2, 2)
+    # ax3 = fig.add_subplot(1, 3, 3)
     ax1.tick_params('both', labelsize=22)
     ax2.tick_params('both', labelsize=22)
+    # ax3.tick_params('both', labelsize=22)
     ax1.plot(lambda_arr, fid_s2, linestyle='-', color='r', marker='o')
     ax1.plot(lambda_arr, fid_s3, linestyle='-', color='g', marker='s')
     ax1.plot(lambda_arr, fid_s4, linestyle='-', color='b', marker='d')
@@ -85,11 +89,16 @@ def fid_train_from_scratch_celeba():
     ax2.plot(lambda_arr, fid_s10, linestyle='-', color='b', marker='d')
     ax2.legend(['6 steps', '8 steps', '10 steps'], fontsize=20, loc='upper center')
 
-    fig.supylabel('    FID', fontsize=25, rotation=0)  # make it horizontal
-    fig.supxlabel('value of $\\lambda$', fontsize=25)
-    fig.suptitle("FID Comparison on CelebA by Different Sampling Steps", fontsize=30)
+    # ax3.plot(lambda_arr, fid_s8, linestyle='-', color='r', marker='o')
+    # ax3.plot(lambda_arr, fid_s9, linestyle='-', color='g', marker='s')
+    # ax3.plot(lambda_arr, fid_s10, linestyle='-', color='b', marker='d')
+    # ax3.legend(['8 steps', '9 steps', '10 steps'], fontsize=20, loc='upper center')
+
+    fig.supylabel('FID  ', fontsize=25, rotation=0)  # make it horizontal
+    fig.supxlabel('$\\lambda$', fontsize=25)
+    fig.suptitle("FID Comparison", fontsize=30)
     # plt.show()
-    f_path = './RectifiedFlow_Pytorch/charts/fig_fid_train_from_scratch_celeba.png'
+    f_path = './charts/fig_fid_train_from_scratch_celeba.png'
     fig.savefig(f_path, bbox_inches='tight')
     print(f"file saved: {f_path}")
     plt.close()
@@ -152,7 +161,7 @@ def gen_img_of_step_count():
     # for
 
 def gen_img_of_vertical_text():
-    root_dir = "./RectifiedFlow_Pytorch/charts/"
+    root_dir = "./charts/"
     step_arr = [1, 2]
     for s in step_arr:
         fig = plt.figure(figsize=(1.1, 6))
@@ -164,7 +173,7 @@ def gen_img_of_vertical_text():
         ax.spines['bottom'].set_visible(False)
         ax.spines['left'].set_visible(False)
         text_kwargs = dict(ha='center', va='center', fontsize=40, color='k', rotation=90)
-        plt.text(0.5, 0.5, f"{s}-Rectified Flow", text_kwargs)
+        plt.text(0.5, 0.5, f"{s}-rectified flow", text_kwargs)
 
         f_path = os.path.join(root_dir, f"fig_lbl_{s}_rectified_flow.png")
         fig.savefig(f_path, bbox_inches='tight')
@@ -239,6 +248,67 @@ def reverse_time_ode_gradient():
     print(f"file saved: {f_path}")
     plt.close()
 
+def gradient_variance():
+    """
+    step_cnt: 20
+    :return:
+    """
+    def read_floats_from_file(f):
+        x_arr = []
+        with open(f, 'r') as fptr:
+            lines = fptr.readlines()
+            for line in lines:
+                line = line.strip()
+                if line.startswith('#') or line == '': continue
+                x = line.split()[0]
+                x = float(x)
+                x_arr.append(x)
+            # for
+        # with
+        return x_arr
+
+    root_dir = "./charts/gradient_variance"
+    fn1 = 'var_ckpt_gnobitab_RF_CIFAR10_ReRF3_img5000_step20.txt'
+    fn2 = 'var_ckpt_gnobitab_RF_CIFAR10_ReRF2-RefineL0.1_img5000_step20.txt'
+    var_refl3_origin = read_floats_from_file(os.path.join(root_dir, fn1))
+    var_refl2_refine = read_floats_from_file(os.path.join(root_dir, fn2))
+    print(f"var_refl3_origin: {len(var_refl3_origin)}")
+    print(f"var_refl2_refine: {len(var_refl2_refine)}")
+    avg_refl3_origin, avg_refl2_refine = [], []
+    var_cnt, var_sum = 0, 0.
+    for var in var_refl3_origin:
+        var_cnt += 1
+        var_sum += var
+        avg = var_sum / var_cnt * 10000
+        avg_refl3_origin.append(avg)
+    var_cnt, var_sum = 0, 0.
+    for var in var_refl2_refine:
+        var_cnt += 1
+        var_sum += var
+        avg = var_sum / var_cnt * 10000
+        avg_refl2_refine.append(avg)
+    x_axis = list(range(1, 1+len(var_refl2_refine)))
+    ignore_first_part = 100
+    x_axis = x_axis[ignore_first_part:]
+    avg_refl3_origin = avg_refl3_origin[ignore_first_part:]
+    avg_refl2_refine = avg_refl2_refine[ignore_first_part:]
+
+    fig = plt.figure(figsize=(12, 8))
+    ax1 = fig.add_subplot(1, 1, 1)
+    ax1.tick_params('both', labelsize=22)
+    ax1.plot(x_axis, avg_refl3_origin, linestyle='-', color='r')
+    ax1.plot(x_axis, avg_refl2_refine, linestyle='-', color='g')
+    ax1.legend(['3-rectified flow', '3-rectified flow + consistent-gradient method'], fontsize=20, loc='upper right')
+
+    fig.supylabel('Average Variance ($\\times 10^{-4}$)', fontsize=25)  # make it horizontal: rotation=0
+    fig.supxlabel('Number of Samples', fontsize=25)
+    fig.suptitle("Average Variance of Predicted Gradients", fontsize=30)
+    # plt.show()
+    f_path = './charts/gradient_variance/fig_variance_of_gradients_ReRF3_vs_ReRF2Refine.png'
+    fig.savefig(f_path, bbox_inches='tight')
+    print(f"file saved: {f_path}")
+    plt.close()
+
 def main():
     """ entry point """
     # run_delta_plot_distribution()
@@ -247,7 +317,8 @@ def main():
     # gen_img_of_step_count()
     # change_background_local()
     # gen_img_of_vertical_text()
-    reverse_time_ode_gradient()
+    # reverse_time_ode_gradient()
+    gradient_variance()
 
 if __name__ == '__main__':
     main()
