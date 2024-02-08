@@ -1,6 +1,7 @@
 """
 Rectified Flow Training
 """
+import os.path
 import time
 import torch
 import torch.utils.data as data
@@ -10,13 +11,23 @@ from RectifiedFlow_Pytorch.datasets import get_train_test_datasets
 from RectifiedFlow_Pytorch.datasets import data_scaler
 from RectifiedFlow_Pytorch.models.ncsnpp import NCSNpp
 from RectifiedFlow_Pytorch.rectified_flow_base import RectifiedFlowBase
-from utils import log_info as log_info
+from RectifiedFlow_Pytorch.rectified_flow_sampling import RectifiedFlowSampling
+from utils import log_info as log_info, calc_fid_isc
 from models.ema import ExponentialMovingAverage
 
 class RectifiedFlowTraining(RectifiedFlowBase):
     def __init__(self, args, config):
         super().__init__(args, config)
-        self.resume_ckpt_path = args.resume_ckpt_path
+        self.resume_ckpt_path   = args.resume_ckpt_path
+        self.save_ckpt_path     = args.save_ckpt_path
+        self.save_ckpt_interval = args.save_ckpt_interval
+        self.save_ckpt_eval     = args.save_ckpt_eval
+        self.sampler = None
+        if self.save_ckpt_eval:
+            self.sampler = RectifiedFlowSampling(args, config)
+        self.sample_output_dir  = args.sample_output_dir
+        self.fid_input1         = args.fid_input1
+        self.sample_isc_flag    = args.sample_isc_flag
         self.model = None
         self.ema = None
         self.optimizer = None
@@ -25,15 +36,23 @@ class RectifiedFlowTraining(RectifiedFlowBase):
         self.step = 0
         self.step_new = 0
         log_info(f"RectifiedFlowTraining()")
-        log_info(f"  resume_ckpt: {self.resume_ckpt_path}")
-        log_info(f"  device     : {self.device}")
-        log_info(f"  ema_rate   : {self.ema_rate}")
-        log_info(f"  eps        : {self.eps}")
-        log_info(f"  step       : {self.step}")
-        log_info(f"  step_new   : {self.step_new}")
+        log_info(f"  resume_ckpt_path   : {self.resume_ckpt_path}")
+        log_info(f"  save_ckpt_path     : {self.save_ckpt_path}")
+        log_info(f"  save_ckpt_interval : {self.save_ckpt_interval}")
+        log_info(f"  save_ckpt_eval     : {self.save_ckpt_eval}")
+        log_info(f"  sampler            : {type(self.sampler).__name__}")
+        log_info(f"  sample_output_dir  : {self.sample_output_dir}")
+        log_info(f"  fid_input1         : {self.fid_input1}")
+        log_info(f"  sample_isc_flag    : {self.sample_isc_flag}")
+        log_info(f"  device             : {self.device}")
+        log_info(f"  ema_rate           : {self.ema_rate}")
+        log_info(f"  eps                : {self.eps}")
+        log_info(f"  step               : {self.step}")
+        log_info(f"  step_new           : {self.step_new}")
         self.start_time = None
         self.batch_counter = 0
         self.batch_total = 0
+        self.result_arr = []
 
     def init_model_ema_optimizer(self):
         """Create the score model."""
@@ -134,7 +153,8 @@ class RectifiedFlowTraining(RectifiedFlowBase):
         e_cnt = args.n_epochs       # epoch count
         b_cnt = len(train_loader)   # batch count
         lr = args.lr
-        save_int = args.save_ckpt_interval
+        save_int  = self.save_ckpt_interval
+        save_eval = self.save_ckpt_eval
         self.start_time = time.time()
         self.batch_counter = 0
         # self.batch_total = self.calc_batch_total(train_loader, test_loader, ckpt_epoch)
@@ -144,10 +164,12 @@ class RectifiedFlowTraining(RectifiedFlowBase):
         log_info(f"  train_ds_limit: {self.args.train_ds_limit}")
         log_info(f"  test_ds_limit : {self.args.test_ds_limit}")
         log_info(f"  save_interval : {save_int}")
+        log_info(f"  save_eval     : {save_eval}")
         log_info(f"  log_interval  : {log_interval}")
         log_info(f"  image_size    : {config.data.image_size}")
         log_info(f"  b_sz          : {args.batch_size}")
         log_info(f"  lr            : {lr}")
+        log_info(f"  ema_rate      : {self.ema_rate}")
         log_info(f"  loss_dual     : {args.loss_dual}")
         log_info(f"  loss_lambda   : {args.loss_lambda}")
         log_info(f"  train_b_cnt   : {b_cnt}")
@@ -155,13 +177,8 @@ class RectifiedFlowTraining(RectifiedFlowBase):
         log_info(f"  e_cnt         : {e_cnt}")
         log_info(f"  ckpt_epoch    : {ckpt_epoch}")
         log_info(f"  batch_total   : {self.batch_total}")
-        if self.resume_ckpt_path:
-            # if the model is resumed from some ckpt, then calculate EMA avg loss.
-            ema_val_ds_avg = self.get_ema_avg_loss(test_loader, self.args.test_ds_limit)
-            log_info(f"Ori.ema_test_loss_avg: {ema_val_ds_avg:.6f}")
         for epoch in range(ckpt_epoch+1, e_cnt+1):
-            msg = f"lr={lr:8.7f}; ema_rate={self.ema_rate}"
-            log_info(f"Epoch {epoch}/{e_cnt} ---------- {msg}")
+            log_info(f"Epoch {epoch}/{e_cnt} ----------")
             counter = 0
             loss_sum = 0.
             loss_cnt = 0
@@ -185,12 +202,19 @@ class RectifiedFlowTraining(RectifiedFlowBase):
             # for
             loss_avg = loss_sum / loss_cnt
             log_info(f"E{epoch}.training_loss_avg: {loss_avg:.6f}")
-            # ema_val_ds_avg = self.get_ema_avg_loss(test_loader, self.args.test_ds_limit)
-            # log_info(f"E{epoch}.ema_test_loss_avg: {ema_val_ds_avg:.6f}")
             if 0 < epoch < e_cnt and save_int > 0 and epoch % save_int == 0:
                 self.save_ckpt(self.model, self.ema, self.optimizer, epoch, self.step, self.step_new, True)
+                if self.save_ckpt_eval: self.ema_sample_and_fid(epoch)
         # for
         self.save_ckpt(self.model, self.ema, self.optimizer, e_cnt, self.step, self.step_new, False)
+        if self.save_ckpt_eval:
+            self.ema_sample_and_fid(e_cnt)
+            basename = os.path.basename(args.save_ckpt_path)
+            stem, ext = os.path.splitext(basename)
+            f_path = f"./sample_fid_is_{stem}_all.txt"
+            with open(f_path, 'w') as fptr:
+                [fptr.write(f"{m}\n") for m in self.result_arr]
+            # with
         return 0
 
     def train_batch(self, x_batch):
@@ -252,58 +276,67 @@ class RectifiedFlowTraining(RectifiedFlowBase):
         mse = (value1 - value2).square().mean()
         return mse
 
-    def get_ema_avg_loss(self, data_loader, dataset_limit=0):
+    def ema_sample_and_fid(self, epoch):
         """
-        Use dedicated random generator (with the same seed), to make sure that
-        each time we run this function, it uses the same z0 and t.
+        Make samples and calculate the FID.
          """
-        log_info(f"get_ema_avg_loss()")
-        log_info(f"  dataset_limit={dataset_limit}")
-        seed = self.args.seed
-        generator = torch.Generator(device=self.device)
-        generator.manual_seed(seed)
-        log_info(f"  generator.manual_seed({seed})")
+        log_info(f"get_ema_fid()")
+        args, config = self.args, self.config
         self.ema.store(self.model.parameters())
         self.ema.copy_to(self.model.parameters())
         self.model.eval()
-        counter = 0
-        loss_sum = 0.
-        loss_cnt = 0
-        b_cnt = len(data_loader)
-        with torch.no_grad():
-            for bi, (x, y) in enumerate(data_loader):
-                self.batch_counter += 1
-                x = x.to(self.device)
-                x = data_scaler(self.config, x)
-                b_sz, c, h, w = x.size()
-                counter += b_sz
-                z0 = torch.randn(b_sz, c, h, w, generator=generator, device=self.device)
-                if bi == 0:
-                    log_info(f"  z0[0]:{z0[0][0][0][0]:7.4f}, z0[-1]:{z0[-1][-1][-1][-1]:7.4f}")
-                target = x - z0
-                t = torch.rand(b_sz, generator=generator, device=self.device)
-                if bi == 0:
-                    log_info(f"  ts[0]:{t[0]:7.4f}, ts[-1]:{t[-1]:7.4f}")
-                t = torch.mul(t, 1.0 - self.eps)
-                t = torch.add(t, self.eps)
-                t_expand = t.view(-1, 1, 1, 1)
-                perturbed_data = t_expand * x + (1. - t_expand) * z0
-                predict = self.model(perturbed_data, t * 999)
-                loss = self.compute_mse(predict, target)
-                loss_sum += loss
-                loss_cnt += 1
-                if bi % self.args.log_interval == 0 or bi + 1 == b_cnt:
-                    elp, eta = self.get_elp_eta()
-                    loss_avg = loss_sum / loss_cnt
-                    log_info(f"get_ema_avg_loss::B{bi:03d}/{b_cnt}. loss_avg:{loss_avg:.6f}. elp:{elp}, eta:{eta}")
-                if 0 < dataset_limit <= counter:
-                    log_info(f"get_ema_avg_loss(): break iteration as counter={counter}")
-                    break
+        img_cnt     = args.sample_count
+        b_sz        = args.sample_batch_size
+        steps_arr   = args.sample_steps_arr
+        init_ts_arr = args.sample_init_ts_arr
+        b_cnt = img_cnt // b_sz
+        if b_cnt * b_sz < img_cnt:
+            b_cnt += 1
+        c_data = config.data
+        c, h, w = c_data.num_channels, c_data.image_size, c_data.image_size
+        s_fid1, s_dir, s_isc = self.fid_input1, self.sample_output_dir, self.sample_isc_flag
+        log_info(f"  epoch      : {epoch}")
+        log_info(f"  img_cnt    : {img_cnt}")
+        log_info(f"  b_sz       : {b_sz}")
+        log_info(f"  b_cnt      : {b_cnt}")
+        log_info(f"  c          : {c}")
+        log_info(f"  h          : {h}")
+        log_info(f"  w          : {w}")
+        log_info(f"  steps_arr  : {steps_arr}")
+        log_info(f"  init_ts_arr: {init_ts_arr}")
+        time_start = time.time()
+        msg_arr = []
+        for init_ts in init_ts_arr:
+            for steps in steps_arr:
+                with torch.no_grad():
+                    for b_idx in range(b_cnt):
+                        n = img_cnt - b_idx * b_sz if b_idx == b_cnt - 1 else b_sz
+                        z0 = torch.randn(n, c, h, w, requires_grad=False, device=self.device)
+                        x0 = self.sampler.sample_batch(z0, self.model, steps, init_ts, b_idx=b_idx)
+                        self.sampler.save_images(x0, time_start, b_cnt, b_idx, b_sz)
+                    # for
+                # with
+                torch.cuda.empty_cache()
+                log_info(f"sleep 2 seconds to empty the GPU cache. . .")
+                time.sleep(2)
+                log_info(f"fid_input1       : {s_fid1}")
+                log_info(f"sample_output_dir: {s_dir}")
+                log_info(f"sample_isc_flag  : {s_isc}")
+                fid, is_mean, is_std = calc_fid_isc(args.gpu_ids[0], s_fid1, s_dir, s_isc)
+                msg = f"E{epoch:04d}_steps{steps:02d}_initTS{init_ts:.3f}"
+                msg += f"\tFID{fid:7.3f}\tis_mean{is_mean:7.3f}\tis_std{is_std:7.3f}"
+                log_info(msg)
+                msg_arr.append(msg)
             # for
-        # with
+        # for
         self.ema.restore(self.model.parameters())
         self.model.train()
-        loss_avg = loss_sum / loss_cnt
-        return loss_avg
+        basename = os.path.basename(args.save_ckpt_path)
+        stem, ext = os.path.splitext(basename)
+        f_path = f"./sample_fid_is_{stem}_E{epoch:04d}.txt"
+        with open(f_path, 'w') as fptr:
+            [fptr.write(f"{m}\n") for m in msg_arr]
+        # with
+        self.result_arr.extend(msg_arr)
 
 # class

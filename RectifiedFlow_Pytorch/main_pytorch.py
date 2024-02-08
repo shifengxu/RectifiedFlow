@@ -59,11 +59,11 @@ def parse_args_and_config():
     # training
     parser.add_argument('--lr', type=float, default=0.0002, help="learning rate")
     parser.add_argument("--n_epochs", type=int, default=1, help="0 mean epoch number from config file")
-    parser.add_argument("--test_interval", type=int, default=10, help='calc loss on test dataset. 0 means no calc.')
     parser.add_argument('--ema_rate', type=float, default=0.999, help='mu in EMA. 0 means using value from config')
     parser.add_argument("--resume_ckpt_path", type=str, default='./checkpoint/ckpt_gnobitab_RF_LSUN_Bedroom.pth')
     parser.add_argument("--save_ckpt_path", type=str, default='./checkpoint_refined/ckpt.pth')
     parser.add_argument("--save_ckpt_interval", type=int, default=50, help="count by epoch")
+    parser.add_argument("--save_ckpt_eval", type=str2bool, default=False, help="Calculate FID/IS when save ckpt")
     parser.add_argument("--loss_dual", type=str2bool, default=True, help="use dual loss")
     parser.add_argument("--loss_lambda", type=float, default=0.1, help="lambda when dual loss")
 
@@ -72,10 +72,9 @@ def parse_args_and_config():
     parser.add_argument("--sample_batch_size", type=int, default=5, help="0 mean from config file")
     parser.add_argument("--sample_ckpt_path", type=str, default='./checkpoint/ckpt_gnobitab_RF_LSUN_Bedroom.pth')
     parser.add_argument("--sample_output_dir", type=str, default="./output5/generated")
-    parser.add_argument("--sample_order_arr", nargs='*', type=int, default=[], help="1|2|3")
     parser.add_argument("--sample_steps_arr", nargs='*', type=int, default=[10])
-    parser.add_argument("--sample_geometric_arr", nargs='*', type=float, default=[0.9])
     parser.add_argument("--sample_init_ts_arr", nargs='*', type=int, default=[940])
+    parser.add_argument("--sample_isc_flag", type=str2bool, default=False, help="calculate IS for samples")
     parser.add_argument("--fid_input1", type=str, default="../ddim/exp/datasets/lsun/bedroom_train")
 
     args = parser.parse_args()
