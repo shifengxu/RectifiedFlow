@@ -64,6 +64,7 @@ def parse_args_and_config():
     parser.add_argument("--save_ckpt_path", type=str, default='./checkpoint_refined/ckpt.pth')
     parser.add_argument("--save_ckpt_interval", type=int, default=50, help="count by epoch")
     parser.add_argument("--save_ckpt_eval", type=str2bool, default=False, help="Calculate FID/IS when save ckpt")
+    parser.add_argument("--calc_var_interval", type=int, default=0, help="get variance per epoch")
     parser.add_argument("--loss_dual", type=str2bool, default=True, help="use dual loss")
     parser.add_argument("--loss_lambda", type=float, default=0.1, help="lambda when dual loss")
 

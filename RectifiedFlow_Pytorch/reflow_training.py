@@ -28,12 +28,12 @@ class ReflowTraining(RectifiedFlowBase):
         self.step = 0
         self.step_new = 0
         self.dataset = None
+        self.result_arr = []
 
     def get_data_loader(self):
         args = self.args
         if args.config == 'cifar10':
-            seed_dir = os.path.join(self.data_dir, str(self.seed))
-            ds = ImageNoiseNumpyDataset(seed_dir)
+            ds = ImageNoiseNumpyDataset(self.data_dir)
         else:
             image_dir = os.path.join(self.data_dir, f"{args.seed}_image")
             noise_dir = os.path.join(self.data_dir, f"{args.seed}_noise")
@@ -60,12 +60,14 @@ class ReflowTraining(RectifiedFlowBase):
         b_cnt = len(data_loader)
         eb_cnt = e_cnt * b_cnt
         ds_limit = args.train_ds_limit
+        calc_var_int = self.args.calc_var_interval
         lr = args.lr
         log_info(f"  loss_dual  : {args.loss_dual}")
         log_info(f"  loss_lambda: {args.loss_lambda}")
         log_info(f"  ds_limit   : {ds_limit}")
         log_info(f"  ds_name    : {ds_name}")
         log_info(f"  scalar_flag: {scalar_flag}")
+        log_info(f"  calc_var_int:{calc_var_int}")
         log_info(f"  lr     : {lr}")
         log_info(f"  img_cnt: {len(self.dataset)}")
         log_info(f"  log_itv: {log_itv}")
@@ -98,13 +100,15 @@ class ReflowTraining(RectifiedFlowBase):
                 loss_cnt += 1
                 if log_itv > 0 and b_idx % log_itv == 0:
                     elp, eta = get_time_ttl_and_eta(start_time, b_ter, eb_cnt)
-                    log_info(f"B{b_idx:03d}/{b_cnt} loss:{loss:6.4f}, adj:{loss_adj:6.4f}. elp:{elp}, eta:{eta}")
+                    log_info(f"B{b_idx:03d}/{b_cnt} loss:{loss:8.6f}, adj:{loss_adj:8.6f}. elp:{elp}, eta:{eta}")
                 if 0 < ds_limit <= d_counter:
                     log_info(f"break data iteration as counter({d_counter}) reaches {ds_limit}")
                     break
             # for
             loss_avg, loss_adj_avg = loss_sum / loss_cnt, loss_adj_sum / loss_cnt
-            log_info(f"Epoch {epoch}/{e_cnt} loss_avg:{loss_avg:6.4f}, loss_adj_avg:{loss_adj_avg:6.4f}.")
+            log_info(f"Epoch {epoch}/{e_cnt} loss_avg:{loss_avg:8.6f}, loss_adj_avg:{loss_adj_avg:8.6f}.")
+            if calc_var_int > 0 and epoch % calc_var_int == 0:
+                self.ema_calc_variance(epoch)
         # for
         self.save_ckpt(self.model, self.ema, self.optimizer, e_cnt, self.step, self.step_new, False)
 
@@ -167,5 +171,74 @@ class ReflowTraining(RectifiedFlowBase):
         # mse = (value1 - value2).square().sum(dim=(1, 2, 3)).mean(dim=0)
         mse = (value1 - value2).square().mean()
         return mse
+
+    def ema_calc_variance(self, epoch):
+        def calc_gradient_var(eps=1e-3):
+            dt = 1. / steps
+            x = z0
+            grad_arr = []
+            for i in range(steps):
+                num_t = i / steps * (1.0 - eps) + eps
+                if b_idx == 0:
+                    log_info(f"sample_batch() i:{i:2d}, num_t:{num_t:.6f}")
+                t = torch.ones(n, requires_grad=False, device=self.device) * num_t
+                grad = self.model(x, t * 999)
+                grad_arr.append(grad)
+                x = x + grad * dt
+            return grad_arr
+
+        log_info(f"ema_calc_variance()")
+        args, config = self.args, self.config
+        self.ema.store(self.model.parameters())
+        self.ema.copy_to(self.model.parameters())
+        self.model.eval()
+        img_cnt     = args.sample_count
+        b_sz        = args.sample_batch_size
+        steps       = args.sample_steps_arr[0]
+        b_cnt = img_cnt // b_sz
+        if b_cnt * b_sz < img_cnt:
+            b_cnt += 1
+        c_data = config.data
+        c, h, w = c_data.num_channels, c_data.image_size, c_data.image_size
+        log_info(f"  epoch  : {epoch}")
+        log_info(f"  img_cnt: {img_cnt}")
+        log_info(f"  b_sz   : {b_sz}")
+        log_info(f"  b_cnt  : {b_cnt}")
+        log_info(f"  c      : {c}")
+        log_info(f"  h      : {h}")
+        log_info(f"  w      : {w}")
+        log_info(f"  steps  : {steps}")
+        var_sum = 0.
+        var_cnt = 0
+        with torch.no_grad():
+            for b_idx in range(b_cnt):
+                log_info(f"calcVar B{b_idx:03d}/{b_cnt}")
+                n = img_cnt - b_idx * b_sz if b_idx == b_cnt - 1 else b_sz
+                z0 = torch.randn(n, c, h, w, requires_grad=False, device=self.device)
+                grad_arr = calc_gradient_var()
+                grad_arr_t = torch.stack(grad_arr, dim=0)
+                var_b_chw = torch.var(grad_arr_t, dim=0)
+                var_mean = var_b_chw.mean()
+                if b_idx == 0:
+                    log_info(f"grad_arr_t: {grad_arr_t.shape}")
+                    log_info(f"var_b_chw : {var_b_chw.shape}")
+                    log_info(f"var_mean  : {var_mean.shape}")
+                var_sum += var_mean
+                var_cnt += 1
+            # for
+        # with
+        self.ema.restore(self.model.parameters())
+        self.model.train()
+        var_avg = var_sum / var_cnt
+        log_info(f"var_avg E{epoch:04d}:{var_avg:.8f}")
+        self.result_arr.append(f"E{epoch:04d}: {var_avg:.8f}\n")
+        basename = os.path.basename(args.save_ckpt_path)
+        stem, ext = os.path.splitext(basename)
+        f_path = f"./predicted_gradient_variance_{stem}.txt"
+        with open(f_path, 'w') as fptr:
+            fptr.write(f"# steps: {steps}\n")
+            [fptr.write(s) for s in self.result_arr]
+        # with
+        return var_avg
 
 # class
