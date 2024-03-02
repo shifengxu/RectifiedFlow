@@ -487,17 +487,16 @@ def track_training_curve_of_loss():
         for i in range(1, len(list2)):
             ema = ema * ema_rate + list2[i] * (1 - ema_rate)
             list2[i] = ema
-        fig = plt.figure(figsize=(10, 7))
+        fig = plt.figure(figsize=(11, 7))
         ax1 = fig.add_subplot(1, 1, 1)
         ax1.tick_params('both', labelsize=22)
         ax1.plot(epoch_arr, list1, linestyle='-', color='g')
         ax1.plot(epoch_arr, list2, linestyle='-', color='r')
         label_arr =[f"{ith}-Rectified Flow", f"{ith}-Rectified Flow + our method"]
         ax1.legend(label_arr, fontsize=20, loc='upper right')
-        fig.subplots_adjust(hspace=0.4)
-        y_label = r"Loss ($\times 10^{-3}$)"
-        fig.supylabel(y_label, fontsize=25)  # make it horizontal
-        fig.supxlabel('Epoch', fontsize=25)
+        y_label = r"$||g-\hat{g}||_2^2 \quad (\times 10^{-3})$"
+        ax1.set_ylabel(y_label, fontsize=30)
+        ax1.set_xlabel('Epoch', fontsize=25)
         f_path = f"./charts/fig_track_training_curve_of_loss{ith}.png"
         fig.savefig(f_path, bbox_inches='tight')
         print(f"file saved: {f_path}")
