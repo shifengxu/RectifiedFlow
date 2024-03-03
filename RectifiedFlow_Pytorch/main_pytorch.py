@@ -25,6 +25,7 @@ if exe_dir not in env_path:
     os.environ['PATH'] = f"{exe_dir}:{env_path}"
     print(f"Environment variable PATH has inserted new dir: {exe_dir}")
 
+from RectifiedFlow_Pytorch.configs.rectified_flow import afhq_cat_pytorch_rf_gaussian
 from RectifiedFlow_Pytorch.configs.rectified_flow import bedroom_rf_gaussian
 from RectifiedFlow_Pytorch.configs.rectified_flow import bedroom_rf_gaussian_reflow_gen_data
 from RectifiedFlow_Pytorch.configs.rectified_flow import bedroom_rf_gaussian_reflow_train
@@ -96,6 +97,8 @@ def parse_args_and_config():
         config = cifar10_rf_gaussian_reflow_train.get_config()
     elif args.config == 'cifar10':
         config = cifar10_rf_gaussian_ddpmpp.get_config()
+    elif args.config == 'afhq_cat':
+        config = afhq_cat_pytorch_rf_gaussian.get_config()
     else:
         raise ValueError(f"Invalid args.config: {args.config}")
 
