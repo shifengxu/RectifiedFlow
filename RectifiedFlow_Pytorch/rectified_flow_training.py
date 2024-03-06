@@ -158,7 +158,7 @@ class RectifiedFlowTraining(RectifiedFlowBase):
         self.start_time = time.time()
         self.batch_counter = 0
         # self.batch_total = self.calc_batch_total(train_loader, test_loader, ckpt_epoch)
-        self.batch_total = e_cnt * b_cnt
+        self.batch_total = (e_cnt - ckpt_epoch) * b_cnt
         self.model.train()
         log_info(f"RectifiedFlowTraining::train()")
         log_info(f"  train_ds_limit: {self.args.train_ds_limit}")
