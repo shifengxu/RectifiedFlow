@@ -127,17 +127,17 @@ def track_fid_when_training():
     ax2.tick_params('both', labelsize=22)
     ax1.plot(epoch_arr, fid_l000_s1, linestyle='-', color='g', marker='o')
     ax1.plot(epoch_arr, fid_l0_2_s1, linestyle='-', color='r', marker='s')
-    ax1.legend(['vanilla rectified flow', 'consistent-gradient method'], fontsize=20, loc='upper right')
+    ax1.legend(['1-rectified flow', '1-rectified flow + CG method'], fontsize=23, loc='upper right')
     ax1.set_title("1-Step Sampling", fontsize=25)
 
     ax2.plot(epoch_arr, fid_l000_s2, linestyle='-', color='g', marker='o')
     ax2.plot(epoch_arr, fid_l0_2_s2, linestyle='-', color='r', marker='s')
-    ax2.legend(['vanilla rectified flow', 'consistent-gradient method'], fontsize=20, loc='upper right')
+    ax2.legend(['1-rectified flow', '1-rectified flow + CG method'], fontsize=23, loc='upper right')
     ax2.set_title("2-Step Sampling", fontsize=25)
 
     fig.subplots_adjust(hspace=0.4)
-    fig.supylabel('FID  ', fontsize=25, rotation=0)  # make it horizontal
-    fig.supxlabel('Epoch', fontsize=25)
+    fig.supylabel('FID  ', fontsize=30, rotation=0)  # make it horizontal
+    fig.supxlabel('Epoch', fontsize=30)
     # fig.suptitle("FID Metrics When Training", fontsize=30)
 
     f_path = './charts/fig_track_fid_when_training.png'
@@ -321,11 +321,11 @@ def gradient_variance_when_training():
     ax1.tick_params('both', labelsize=22)
     ax1.plot(x_axis, lambda_false, linestyle='-', color='g')
     ax1.plot(x_axis, lambda_0_1, linestyle='-', color='r')
-    ax1.legend(['3-rectified flow', '3-rectified flow + consistent-gradient method'], fontsize=20, loc='upper right')
-    ax1.set_title("Variance of Predicted Gradients", fontsize=25)
+    ax1.legend(['3-rectified flow', '3-rectified flow + CG method'], fontsize=25, loc='upper right')
+    ax1.set_title("Variance of Predicted Gradients", fontsize=30)
 
-    fig.supylabel('Variance ($\\times 10^{-4}$)', fontsize=25)  # make it horizontal: rotation=0
-    fig.supxlabel('Epoch', fontsize=25)
+    fig.supylabel('Variance ($\\times 10^{-4}$)', fontsize=30)  # make it horizontal: rotation=0
+    fig.supxlabel('Epoch', fontsize=30)
     # plt.show()
     f_path = './charts/gradient_variance/fig_variance_of_gradients_ReRF3_vs_ReRF2Refine.png'
     fig.savefig(f_path, bbox_inches='tight')
@@ -489,14 +489,14 @@ def track_training_curve_of_loss():
             list2[i] = ema
         fig = plt.figure(figsize=(11, 7))
         ax1 = fig.add_subplot(1, 1, 1)
-        ax1.tick_params('both', labelsize=22)
+        ax1.tick_params('both', labelsize=27)
         ax1.plot(epoch_arr, list1, linestyle='-', color='g')
         ax1.plot(epoch_arr, list2, linestyle='-', color='r')
-        label_arr =[f"{ith}-Rectified Flow", f"{ith}-Rectified Flow + our method"]
-        ax1.legend(label_arr, fontsize=20, loc='upper right')
+        label_arr =[f"{ith}-Rectified Flow", f"{ith}-Rectified Flow + CG method"]
+        ax1.legend(label_arr, fontsize=27, loc='upper right')
         y_label = r"$||g-\hat{g}||_2^2 \quad (\times 10^{-3})$"
-        ax1.set_ylabel(y_label, fontsize=30)
-        ax1.set_xlabel('Epoch', fontsize=25)
+        ax1.set_ylabel(y_label, fontsize=40)
+        ax1.set_xlabel('Epoch', fontsize=40)
         f_path = f"./charts/fig_track_training_curve_of_loss{ith}.png"
         fig.savefig(f_path, bbox_inches='tight')
         print(f"file saved: {f_path}")
@@ -611,8 +611,8 @@ def main():
     # reverse_time_ode_gradient()
     # gradient_variance_when_training()
     # track_fid_when_training()
-    # trajectory_diffusion_vs_rectified_flow()
-    track_training_curve_of_loss()
+    trajectory_diffusion_vs_rectified_flow()
+    # track_training_curve_of_loss()
 
 if __name__ == '__main__':
     main()
