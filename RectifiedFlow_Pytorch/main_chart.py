@@ -223,6 +223,28 @@ def gen_img_of_vertical_text():
         plt.close()
     # for
 
+def gen_img_of_vertical_text_v2():
+    root_dir = "./charts/"
+    str_arr = ["2RF", "2RF+CG"]
+    name_arr = ["2RF", "2RF_CG"]
+    for s, n in zip(str_arr, name_arr):
+        fig = plt.figure(figsize=(1.1, 6))
+        ax = fig.add_subplot(1, 1, 1)
+        ax.get_xaxis().set_visible(False)       # hide ticks
+        ax.get_yaxis().set_visible(False)
+        ax.spines['top'].set_visible(False)     # hide lines
+        ax.spines['right'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
+        ax.spines['left'].set_visible(False)
+        text_kwargs = dict(ha='center', va='center', fontsize=40, color='k', rotation=90)
+        plt.text(0.5, 0.5, s, text_kwargs)
+
+        f_path = os.path.join(root_dir, f"fig_lbl_{n}.png")
+        fig.savefig(f_path, bbox_inches='tight')
+        print(f"saved: {f_path}")
+        plt.close()
+    # for
+
 def change_background_local():
     # step_arr = ['01', '02', '03']
     # lambda_arr = ["0.5"]
@@ -328,6 +350,47 @@ def gradient_variance_when_training():
     fig.supxlabel('Epoch', fontsize=30)
     # plt.show()
     f_path = './charts/gradient_variance/fig_variance_of_gradients_ReRF3_vs_ReRF2Refine.png'
+    fig.savefig(f_path, bbox_inches='tight')
+    print(f"file saved: {f_path}")
+    plt.close()
+
+def diffusion_dual_loss_online_model_fid():
+    """
+    Apply the consistent gradient (CG) method to diffusion model (DM),
+    to see if such CG method can help diffusion training.
+    And here is the FID score comparison between DM and DM+CG.
+    :return:
+    """
+    x_axis = [40, 60, 80, 100, 120, 140, 160, 180, 200,
+              220, 240, 260, 280, 300, 320, 340, 360, 380, 400,
+              420, 440, 460, 480, 500]
+    fid_step3_bln = [94.64, 88.92, 85.65, 84.28, 84.94, 84.62, 82.46, 84.63, 85.54,
+                     85.65, 83.86, 85.81, 88.04, 88.46, 90.58, 86.37, 87.07, 90.72, 90.31,
+                     89.65, 90.45, 89.40, 89.90, 90.15]
+    fid_step3_L01 = [125.2, 121.7, 112.6, 112.2, 108.9, 106.0, 106.0, 102.9, 100.0,
+                     99.24, 99.91, 97.67, 98.73, 97.22, 96.39, 95.60, 92.05, 93.60, 94.44,
+                     90.27, 91.18, 89.95, 92.68, 92.60]
+    fid_step5_bln = [53.36, 48.25, 46.90, 46.79, 45.76, 47.67, 45.75, 47.45, 47.56,
+                     47.25, 47.40, 47.33, 47.59, 48.43, 48.43, 48.34, 47.68, 48.07, 48.26,
+                     47.59, 48.25, 47.30, 48.36, 47.67]
+    fid_step5_L01 = [78.02, 71.79, 65.82, 63.34, 60.56, 58.38, 57.80, 55.62, 53.89,
+                     54.04, 53.24, 52.62, 51.92, 51.08, 50.99, 49.50, 47.83, 48.69, 47.83,
+                     47.13, 47.60, 46.64, 47.13, 46.82]
+    legend_arr = ['3 steps: DM', '3 steps: DM+CG', '5 steps: DM', '5 steps: DM+CG', ]
+    fig = plt.figure(figsize=(12, 7))
+    ax1 = fig.add_subplot(1, 1, 1)
+    ax1.tick_params('both', labelsize=22)
+    ax1.plot(x_axis, fid_step3_bln, linestyle='-', color='g')
+    ax1.plot(x_axis, fid_step3_L01, linestyle='-', color='r')
+    ax1.plot(x_axis, fid_step5_bln, linestyle='--', color='g')
+    ax1.plot(x_axis, fid_step5_L01, linestyle='--', color='r')
+    ax1.legend(legend_arr, fontsize=22, loc='upper right')
+    # ax1.set_title("FID Comparison between Diffusion Model and CG Method", fontsize=30)
+
+    fig.supylabel('FID', fontsize=25)  # make it horizontal: rotation=0
+    fig.supxlabel('Epoch', fontsize=25)
+    # plt.show()
+    f_path = './charts/diffusion_dual_loss_online_model_fid.png'
     fig.savefig(f_path, bbox_inches='tight')
     print(f"file saved: {f_path}")
     plt.close()
@@ -611,8 +674,10 @@ def main():
     # reverse_time_ode_gradient()
     # gradient_variance_when_training()
     # track_fid_when_training()
-    trajectory_diffusion_vs_rectified_flow()
+    # trajectory_diffusion_vs_rectified_flow()
     # track_training_curve_of_loss()
+    diffusion_dual_loss_online_model_fid()
+    # gen_img_of_vertical_text_v2()
 
 if __name__ == '__main__':
     main()
