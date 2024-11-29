@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import torch
 import torchvision as tv
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
-from utils import log_info
 
 def run_delta_plot_distribution():
     """ distribution of delta between predicted noise and ground truth noise """
@@ -23,7 +22,7 @@ def run_delta_plot_distribution():
                 x_arr.append(f_tmp)
             # for
         # with
-        log_info(f"Read {len(x_arr)} floats from file {f}")
+        print(f"Read {len(x_arr)} floats from file {f}")
         return x_arr
 
     def set_plt_ui():
@@ -120,25 +119,29 @@ def track_fid_when_training():
     fid_l0_2_s2 = [447.22, # 146.25, 120.48, 133.02, 132.34,
                    133.22, 132.94, 129.47,
                    128.47, 126.86, 128.10, 128.24, 126.11, 124.85, 124.43, 123.54, 122.78, 123.79]
-    fig = plt.figure(figsize=(12, 8))
-    ax1 = fig.add_subplot(2, 1, 1)
-    ax2 = fig.add_subplot(2, 1, 2)
-    ax1.tick_params('both', labelsize=22)
-    ax2.tick_params('both', labelsize=22)
-    ax1.plot(epoch_arr, fid_l000_s1, linestyle='-', color='g', marker='o')
-    ax1.plot(epoch_arr, fid_l0_2_s1, linestyle='-', color='r', marker='s')
-    ax1.legend(['1-rectified flow', '1-rectified flow + CG method'], fontsize=23, loc='upper right')
-    ax1.set_title("1-Step Sampling", fontsize=25)
+    xy_axis_size = 20
+    legend_size = 18
+    tick_size = 18
+    title_size = 20
+    fig = plt.figure(figsize=(12, 2.5))
+    ax1 = fig.add_subplot(1, 2, 1)
+    ax1.tick_params('both', labelsize=tick_size)
+    ax1.plot(epoch_arr, fid_l000_s1, linestyle='-', color='g')
+    ax1.plot(epoch_arr, fid_l0_2_s1, linestyle='-', color='r')
+    ax1.legend(['1RF', '1RF+CG'], fontsize=legend_size, loc='upper right')
+    ax1.set_xlabel("Epoch", fontsize=xy_axis_size)
+    ax1.set_title("1-Step Sampling", fontsize=title_size)
 
-    ax2.plot(epoch_arr, fid_l000_s2, linestyle='-', color='g', marker='o')
-    ax2.plot(epoch_arr, fid_l0_2_s2, linestyle='-', color='r', marker='s')
-    ax2.legend(['1-rectified flow', '1-rectified flow + CG method'], fontsize=23, loc='upper right')
-    ax2.set_title("2-Step Sampling", fontsize=25)
+    ax2 = fig.add_subplot(1, 2, 2)
+    ax2.tick_params('both', labelsize=tick_size)
+    ax2.plot(epoch_arr, fid_l000_s2, linestyle='-', color='g')
+    ax2.plot(epoch_arr, fid_l0_2_s2, linestyle='-', color='r')
+    ax2.legend(['1RF', '1RF+CG'], fontsize=legend_size, loc='upper right')
+    ax2.set_xlabel("Epoch", fontsize=xy_axis_size)
+    ax2.set_title("2-Step Sampling", fontsize=title_size)
 
-    fig.subplots_adjust(hspace=0.4)
-    fig.supylabel('FID  ', fontsize=30, rotation=0)  # make it horizontal
-    fig.supxlabel('Epoch', fontsize=30)
-    # fig.suptitle("FID Metrics When Training", fontsize=30)
+    fig.subplots_adjust(wspace=0.25)
+    fig.supylabel('FID  ', fontsize=xy_axis_size, rotation=0)  # make it horizontal
 
     f_path = './charts/fig_track_fid_when_training.png'
     fig.savefig(f_path, bbox_inches='tight')
@@ -338,16 +341,15 @@ def gradient_variance_when_training():
     lambda_0_1   = [var * 10000 for var in lambda_0_1]
     x_axis = list(range(1, 1+len(lambda_0_1)))
 
-    fig = plt.figure(figsize=(12, 8))
+    fig = plt.figure(figsize=(12, 3))
     ax1 = fig.add_subplot(1, 1, 1)
-    ax1.tick_params('both', labelsize=22)
+    ax1.tick_params('both', labelsize=20)
     ax1.plot(x_axis, lambda_false, linestyle='-', color='g')
     ax1.plot(x_axis, lambda_0_1, linestyle='-', color='r')
-    ax1.legend(['3-rectified flow', '3-rectified flow + CG method'], fontsize=25, loc='upper right')
-    ax1.set_title("Variance of Predicted Gradients", fontsize=30)
-
-    fig.supylabel('Variance ($\\times 10^{-4}$)', fontsize=30)  # make it horizontal: rotation=0
-    fig.supxlabel('Epoch', fontsize=30)
+    ax1.legend(['3RF', '3RF+CG'], fontsize=20, loc='upper right')
+    ax1.set_title("Variance of Predicted Gradients", fontsize=25)
+    ax1.set_ylabel('Variance ($\\times 10^{-4}$)', fontsize=20)  # make it horizontal: rotation=0
+    ax1.set_xlabel('Epoch', fontsize=20)
     # plt.show()
     f_path = './charts/gradient_variance/fig_variance_of_gradients_ReRF3_vs_ReRF2Refine.png'
     fig.savefig(f_path, bbox_inches='tight')
@@ -550,12 +552,12 @@ def track_training_curve_of_loss():
         for i in range(1, len(list2)):
             ema = ema * ema_rate + list2[i] * (1 - ema_rate)
             list2[i] = ema
-        fig = plt.figure(figsize=(11, 7))
+        fig = plt.figure(figsize=(5, 7))
         ax1 = fig.add_subplot(1, 1, 1)
         ax1.tick_params('both', labelsize=27)
         ax1.plot(epoch_arr, list1, linestyle='-', color='g')
         ax1.plot(epoch_arr, list2, linestyle='-', color='r')
-        label_arr =[f"{ith}-Rectified Flow", f"{ith}-Rectified Flow + CG method"]
+        label_arr =[f"{ith}RF", f"{ith}RF+CG"]
         ax1.legend(label_arr, fontsize=27, loc='upper right')
         y_label = r"$||g-\hat{g}||_2^2 \quad (\times 10^{-3})$"
         ax1.set_ylabel(y_label, fontsize=40)
@@ -672,11 +674,11 @@ def main():
     # change_background_local()
     # gen_img_of_vertical_text()
     # reverse_time_ode_gradient()
-    # gradient_variance_when_training()
+    gradient_variance_when_training()
     # track_fid_when_training()
     # trajectory_diffusion_vs_rectified_flow()
     # track_training_curve_of_loss()
-    diffusion_dual_loss_online_model_fid()
+    # diffusion_dual_loss_online_model_fid()
     # gen_img_of_vertical_text_v2()
 
 if __name__ == '__main__':
