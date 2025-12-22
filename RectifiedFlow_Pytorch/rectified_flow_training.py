@@ -177,29 +177,35 @@ class RectifiedFlowTraining(RectifiedFlowBase):
         log_info(f"  e_cnt         : {e_cnt}")
         log_info(f"  ckpt_epoch    : {ckpt_epoch}")
         log_info(f"  batch_total   : {self.batch_total}")
+        total_train_time = 0.0
         for epoch in range(ckpt_epoch+1, e_cnt+1):
             log_info(f"Epoch {epoch}/{e_cnt} ----------")
+            epoch_start_time = time.time()
             counter = 0
             loss_sum = 0.
             loss_cnt = 0
-            for i, (x, y) in enumerate(train_loader):
+            for b_idx, (x, y) in enumerate(train_loader):
                 self.batch_counter += 1
                 x = x.to(self.device)
                 x = data_scaler(config, x)
                 loss, loss_adj, ema_decay = self.train_batch(x)
                 loss_sum += loss
                 loss_cnt += 1
-                if i % log_interval == 0 or i == b_cnt - 1:
+                if b_idx % log_interval == 0 or b_idx == b_cnt - 1:
                     elp, eta = self.get_elp_eta()
                     loss_str = f"loss:{loss:6.4f}"
                     if self.args.loss_dual: loss_str += f", loss_adj:{loss_adj:6.4f}"
-                    log_info(f"E{epoch}.B{i:03d}/{b_cnt} {loss_str}; ema:{ema_decay:.4f}. "
+                    log_info(f"E{epoch}.B{b_idx:03d}/{b_cnt} {loss_str}; ema:{ema_decay:.4f}. "
                              f"elp:{elp}, eta:{eta}")
                 counter += x.size(0)
                 if 0 < args.train_ds_limit <= counter:
                     log_info(f"break epoch: counter >= train_ds_limit ({counter} >= {args.train_ds_limit})")
                     break
             # for
+            epoch_train_time = time.time() - epoch_start_time
+            total_train_time += epoch_train_time
+            hours = total_train_time / 3600
+            log_info(f"Epoch {epoch}/{e_cnt}: total_train_time = {total_train_time:.4f} seconds = {hours:.4f} hours")
             loss_avg = loss_sum / loss_cnt
             log_info(f"E{epoch}.training_loss_avg: {loss_avg:.6f}")
             if 0 < epoch < e_cnt and save_int > 0 and epoch % save_int == 0:
@@ -280,7 +286,7 @@ class RectifiedFlowTraining(RectifiedFlowBase):
         """
         Make samples and calculate the FID.
          """
-        log_info(f"get_ema_fid()")
+        log_info(f"ema_sample_and_fid()")
         args, config = self.args, self.config
         self.ema.store(self.model.parameters())
         self.ema.copy_to(self.model.parameters())
@@ -306,8 +312,12 @@ class RectifiedFlowTraining(RectifiedFlowBase):
         log_info(f"  init_ts_arr: {init_ts_arr}")
         time_start = time.time()
         msg_arr = []
+        basename = os.path.basename(args.save_ckpt_path)
+        stem, ext = os.path.splitext(basename)
+        f_path = f"./sample_fid_is_{stem}_E{epoch:04d}.txt"
         for init_ts in init_ts_arr:
             for steps in steps_arr:
+                log_info(f"steps{steps} -----")
                 with torch.no_grad():
                     for b_idx in range(b_cnt):
                         n = img_cnt - b_idx * b_sz if b_idx == b_cnt - 1 else b_sz
@@ -317,26 +327,23 @@ class RectifiedFlowTraining(RectifiedFlowBase):
                     # for
                 # with
                 torch.cuda.empty_cache()
-                log_info(f"sleep 2 seconds to empty the GPU cache. . .")
+                log_info(f"steps{steps}: sleep 2 seconds to empty the GPU cache. . .")
                 time.sleep(2)
-                log_info(f"fid_input1       : {s_fid1}")
-                log_info(f"sample_output_dir: {s_dir}")
-                log_info(f"sample_isc_flag  : {s_isc}")
+                log_info(f"steps{steps}: fid_input1       : {s_fid1}")
+                log_info(f"steps{steps}: sample_output_dir: {s_dir}")
+                log_info(f"steps{steps}: sample_isc_flag  : {s_isc}")
                 fid, is_mean, is_std = calc_fid_isc(args.gpu_ids[0], s_fid1, s_dir, s_isc)
                 msg = f"E{epoch:04d}_steps{steps:02d}_initTS{init_ts:.3f}"
                 msg += f"\tFID{fid:7.3f}\tis_mean{is_mean:7.3f}\tis_std{is_std:7.3f}"
                 log_info(msg)
                 msg_arr.append(msg)
+                with open(f_path, 'w') as fptr:
+                    [fptr.write(f"{m}\n") for m in msg_arr]
+                # with
             # for
         # for
         self.ema.restore(self.model.parameters())
         self.model.train()
-        basename = os.path.basename(args.save_ckpt_path)
-        stem, ext = os.path.splitext(basename)
-        f_path = f"./sample_fid_is_{stem}_E{epoch:04d}.txt"
-        with open(f_path, 'w') as fptr:
-            [fptr.write(f"{m}\n") for m in msg_arr]
-        # with
         self.result_arr.extend(msg_arr)
 
 # class

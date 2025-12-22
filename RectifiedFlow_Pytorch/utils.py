@@ -115,8 +115,26 @@ def calc_fid_isc(gpu, input1="cifar10-train", input2="./generated", isc_flag=Tru
     logger(f"out: {output}")
     m = re.search(r'frechet_inception_distance: (\d+\.\d+)', output)
     fid = float(m.group(1))
+    if isc_flag:
+        m = re.search(r'inception_score_mean: (\d+\.\d+)', output)
+        is_mean = float(m.group(1))
+        m = re.search(r'inception_score_std: (\d+\.\d+)', output)
+        is_std = float(m.group(1))
+    else:
+        is_mean, is_std = 0., 0.
+    return fid, is_mean, is_std
+
+def calc_isc(gpu, input1="cifar10-train", input2="./generated", logger=log_info):
+    cmd = f"fidelity --gpu {gpu} --isc --input1 {input1} --input2 {input2} --silent"
+    logger(f"cmd: {cmd}")
+    cmd_arr = cmd.split(' ')
+    res = subprocess.run(cmd_arr, stdout=subprocess.PIPE)
+    output = str(res.stdout)
+    # inception_score_mean: 11.24431
+    # inception_score_std: 0.09522244
+    logger(f"out: {output}")
     m = re.search(r'inception_score_mean: (\d+\.\d+)', output)
     is_mean = float(m.group(1))
     m = re.search(r'inception_score_std: (\d+\.\d+)', output)
     is_std = float(m.group(1))
-    return fid, is_mean, is_std
+    return is_mean, is_std
